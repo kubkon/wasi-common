@@ -98,7 +98,92 @@ pub fn fd_fdstat_get(
     fd: wasm32::__wasi_fd_t,
     fdstat_ptr: wasm32::uintptr_t, // *mut wasm32::__wasi_fdstat_t
 ) -> wasm32::__wasi_errno_t {
-    unimplemented!("fd_fdstat_get")
+    let host_fd = dec_fd(fd);
+    let mut host_fdstat = match dec_fdstat_byref(memory, fdstat_ptr) {
+        Ok(host_fdstat) => host_fdstat,
+        Err(e) => return enc_errno(e),
+    };
+
+    let errno = if let Some(fe) = wasi_ctx.fds.get(&host_fd) {
+        host_fdstat.fs_filetype = fe.fd_object.ty;
+        host_fdstat.fs_rights_base = fe.rights_base;
+        host_fdstat.fs_rights_inheriting = fe.rights_inheriting;
+
+        use winapi::shared::winerror::ERROR_SUCCESS;
+        use winapi::shared::{minwindef, ntdef};
+        use winapi::um::aclapi::GetSecurityInfo;
+        use winapi::um::fileapi::GetFileType;
+        use winapi::um::securitybaseapi::{GetAce, IsValidAcl};
+        use winapi::um::{accctrl, winbase, winnt};
+
+        unsafe {
+            match GetFileType(fe.fd_object.raw_handle) {
+                winbase::FILE_TYPE_DISK => {
+                    let mut dacl = 0 as winnt::PACL;
+                    let mut sec_desc = 0 as winnt::PSECURITY_DESCRIPTOR;
+
+                    if GetSecurityInfo(
+                        fe.fd_object.raw_handle,
+                        accctrl::SE_FILE_OBJECT,
+                        winnt::DACL_SECURITY_INFORMATION,
+                        std::ptr::null_mut(),
+                        std::ptr::null_mut(),
+                        &mut dacl,
+                        std::ptr::null_mut(),
+                        &mut sec_desc,
+                    ) != ERROR_SUCCESS
+                    {
+                        return wasm32::__WASI_EBADF;
+                    }
+
+                    if IsValidAcl(dacl) == 0 {
+                        return wasm32::__WASI_EBADF;
+                    }
+
+                    let count = (*dacl).AceCount;
+                    let mut ace = 0 as winnt::PVOID;
+
+                    if GetAce(dacl, 0, &mut ace) == 0 {
+                        return wasm32::__WASI_EBADF;
+                    }
+
+                    let header = (*(ace as winnt::PACCESS_ALLOWED_ACE)).Header.AceType;
+                    let mask = (*(ace as winnt::PACCESS_ALLOWED_ACE)).Mask;
+
+                    let mut fdflags = 0;
+                    if mask & winnt::FILE_APPEND_DATA != 0 {
+                        fdflags |= host::__WASI_FDFLAG_APPEND;
+                    }
+                    if mask & winnt::SYNCHRONIZE != 0 {
+                        if mask & winnt::FILE_WRITE_DATA != 0 {
+                            fdflags |= host::__WASI_FDFLAG_DSYNC;
+                        }
+                        if mask & winnt::FILE_READ_DATA != 0 {
+                            fdflags |= host::__WASI_FDFLAG_RSYNC;
+                        }
+                        if mask & winnt::FILE_WRITE_ATTRIBUTES != 0 {
+                            fdflags |= host::__WASI_FDFLAG_SYNC;
+                        }
+                    }
+
+                    // TODO figure out NONBLOCK equivalent
+                    // perhaps FILE_CREATE_PIPE_INSTANCE?
+                    
+                    host_fdstat.fs_flags = fdflags;
+                    wasm32::__WASI_ESUCCESS
+                }
+                // TODO handle sockets, etc.
+                _ => wasm32::__WASI_EBADF,
+            }
+        }
+    } else {
+        wasm32::__WASI_EBADF
+    };
+
+    enc_fdstat_byref(memory, fdstat_ptr, host_fdstat)
+        .expect("can write back into the pointer we read from");
+
+    errno
 }
 
 #[wasi_common_cbindgen]
