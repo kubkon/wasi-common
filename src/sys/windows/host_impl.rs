@@ -4,8 +4,15 @@
 #![allow(unused)]
 use crate::host;
 
-use winx::io::*;
 use std::slice;
+use winx::io::*;
+
+pub fn errno_from_win(error: winx::winerror::WinError) -> host::__wasi_errno_t {
+    // TODO: implement error mapping between Windows and WASI
+    match error {
+        _ => host::__WASI_EBADF,
+    }
+}
 
 pub unsafe fn ciovec_to_win<'a>(ciovec: &'a host::__wasi_ciovec_t) -> IoVec<'a> {
     let slice = slice::from_raw_parts(ciovec.buf as *const u8, ciovec.buf_len);

@@ -20,4 +20,10 @@
     )
 )]
 
+pub mod handle;
 pub mod io;
+pub mod winerror;
+
+use winerror::WinError;
+
+pub type Result<T> = std::result::Result<T, WinError>;

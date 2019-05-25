@@ -1,3 +1,5 @@
+use crate::{winerror, Result};
+
 use std::marker::PhantomData;
 use std::os::windows::prelude::*;
 use std::slice;
@@ -58,8 +60,8 @@ impl<'a> IoVecMut<'a> {
     }
 }
 
-pub fn writev<'a>(raw_handle: RawHandle, iovecs: &[IoVec<'a>]) -> Result<usize, ()> {
-    use winapi::shared::minwindef::{DWORD, LPVOID};
+pub fn writev<'a>(raw_handle: RawHandle, iovecs: &[IoVec<'a>]) -> Result<usize> {
+    use winapi::shared::minwindef::{DWORD, FALSE, LPVOID};
     use winapi::um::fileapi::WriteFile;
 
     let buf = iovecs
@@ -70,13 +72,16 @@ pub fn writev<'a>(raw_handle: RawHandle, iovecs: &[IoVec<'a>]) -> Result<usize, 
     let mut host_nwritten = 0;
     let len = std::cmp::min(buf.len(), <DWORD>::max_value() as usize) as DWORD;
     unsafe {
-        WriteFile(
+        if WriteFile(
             raw_handle,
             buf.as_ptr() as LPVOID,
             len,
             &mut host_nwritten,
             std::ptr::null_mut(),
-        )
+        ) == FALSE
+        {
+            return Err(winerror::WinError::last());
+        }
     };
 
     Ok(host_nwritten as usize)

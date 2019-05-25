@@ -238,7 +238,7 @@ pub fn fd_write(
 
     let host_nwritten = match winx::io::writev(fe.fd_object.raw_handle, &iovs) {
         Ok(len) => len,
-        Err(e) => return wasm32::__WASI_EBADF, // TODO: implement error mapping
+        Err(e) => return host_impl::errno_from_win(e),
     };
 
     enc_usize_byref(memory, nwritten, host_nwritten)

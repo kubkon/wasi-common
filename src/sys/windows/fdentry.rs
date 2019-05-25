@@ -3,10 +3,6 @@ use crate::host;
 use std::fs::File;
 use std::os::windows::prelude::{AsRawHandle, FromRawHandle, IntoRawHandle, RawHandle};
 use std::path::PathBuf;
-use winapi::shared::minwindef::FALSE;
-use winapi::um::handleapi::DuplicateHandle;
-use winapi::um::processthreadsapi::GetCurrentProcess;
-use winapi::um::winnt::DUPLICATE_SAME_ACCESS;
 
 #[derive(Clone, Debug)]
 pub struct FdObject {
@@ -27,12 +23,8 @@ pub struct FdEntry {
 impl Drop for FdObject {
     fn drop(&mut self) {
         if self.needs_close {
-            unsafe {
-                if winapi::um::handleapi::CloseHandle(self.raw_handle) == 0 {
-                    // TODO: use DWORD WINAPI GetLastError(void) to get error
-                    eprintln!("FdObject::drop(): couldn't close raw Handle");
-                }
-            }
+            winx::handle::close(self.raw_handle)
+                .unwrap_or_else(|e| eprintln!("FdObject::drop(): {}", e))
         }
     }
 }
@@ -43,26 +35,7 @@ impl FdEntry {
     }
 
     pub fn duplicate<F: AsRawHandle>(fd: &F) -> Self {
-        unsafe {
-            let source = fd.as_raw_handle();
-            let mut dest = 0 as RawHandle;
-
-            let cur_proc = GetCurrentProcess();
-            if DuplicateHandle(
-                cur_proc,
-                source,
-                cur_proc,
-                &mut dest,
-                0, // dwDesiredAccess; this flag is ignored if DUPLICATE_SAME_ACCESS is specified
-                FALSE,
-                DUPLICATE_SAME_ACCESS,
-            ) == FALSE
-            {
-                panic!("Couldn't duplicate handle");
-            }
-
-            Self::from_raw_handle(dest)
-        }
+        unsafe { Self::from_raw_handle(winx::handle::dup(fd.as_raw_handle()).unwrap()) }
     }
 }
 
