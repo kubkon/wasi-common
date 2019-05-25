@@ -2,7 +2,6 @@
 #![allow(unused_unsafe)]
 #![allow(unused)]
 use super::host_impl;
-use super::host_impl::IoVec;
 
 use crate::ctx::WasiCtx;
 use crate::memory::*;
@@ -219,6 +218,8 @@ pub fn fd_write(
     iovs_len: wasm32::size_t,
     nwritten: wasm32::uintptr_t,
 ) -> wasm32::__wasi_errno_t {
+    use winx::io::IoVec;
+
     let fd = dec_fd(fd);
     let mut iovs = match dec_iovec_slice(memory, iovs_ptr, iovs_len) {
         Ok(iovs) => iovs,
@@ -235,7 +236,7 @@ pub fn fd_write(
         .map(|iov| unsafe { host_impl::iovec_to_win(iov) })
         .collect();
 
-    let host_nwritten = match host_impl::writev(fe.fd_object.raw_handle, &iovs) {
+    let host_nwritten = match winx::io::writev(fe.fd_object.raw_handle, &iovs) {
         Ok(len) => len,
         Err(e) => return wasm32::__WASI_EBADF, // TODO: implement error mapping
     };

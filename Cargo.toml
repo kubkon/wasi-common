@@ -21,6 +21,7 @@ nix = "0.13"
 
 [target.'cfg(windows)'.dependencies]
 winapi = { version = "0.3", features = ["std", "handleapi", "processthreadsapi", "securitybaseapi", "winbase", "winerror", "ws2def", "fileapi", "aclapi" ] }
+winx = { path = "winx" }
 
 [lib]
 name = "wasi_common"
