@@ -168,7 +168,7 @@ pub fn fd_fdstat_get(
 
                     // TODO figure out NONBLOCK equivalent
                     // perhaps FILE_CREATE_PIPE_INSTANCE?
-                    
+
                     host_fdstat.fs_flags = fdflags;
                     wasm32::__WASI_ESUCCESS
                 }
@@ -219,10 +219,6 @@ pub fn fd_write(
     iovs_len: wasm32::size_t,
     nwritten: wasm32::uintptr_t,
 ) -> wasm32::__wasi_errno_t {
-    use winapi::shared::minwindef::{DWORD, LPVOID};
-    use winapi::shared::ws2def::WSABUF;
-    use winapi::um::fileapi::WriteFile;
-
     let fd = dec_fd(fd);
     let mut iovs = match dec_iovec_slice(memory, iovs_ptr, iovs_len) {
         Ok(iovs) => iovs,
@@ -239,24 +235,12 @@ pub fn fd_write(
         .map(|iov| unsafe { host_impl::iovec_to_win(iov) })
         .collect();
 
-    let buf = iovs
-        .iter()
-        .find(|b| !b.as_slice().is_empty())
-        .map_or(&[][..], |b| b.as_slice());
-
-    let mut host_nwritten = 0;
-    let len = cmp::min(buf.len(), <DWORD>::max_value() as usize) as DWORD;
-    unsafe {
-        WriteFile(
-            fe.fd_object.raw_handle,
-            buf.as_ptr() as LPVOID,
-            len,
-            &mut host_nwritten,
-            std::ptr::null_mut(),
-        )
+    let host_nwritten = match host_impl::writev(fe.fd_object.raw_handle, &iovs) {
+        Ok(len) => len,
+        Err(e) => return wasm32::__WASI_EBADF, // TODO: implement error mapping
     };
 
-    enc_usize_byref(memory, nwritten, host_nwritten as usize)
+    enc_usize_byref(memory, nwritten, host_nwritten)
         .map(|_| wasm32::__WASI_ESUCCESS)
         .unwrap_or_else(|e| e)
 }
@@ -322,7 +306,25 @@ pub fn path_open(
     fs_flags: wasm32::__wasi_fdflags_t,
     fd_out_ptr: wasm32::uintptr_t,
 ) -> wasm32::__wasi_errno_t {
-    unimplemented!("path_open")
+    let dirfd = dec_fd(dirfd);
+    let dirflags = dec_lookupflags(dirflags);
+    let oflags = dec_oflags(oflags);
+    let fs_rights_base = dec_rights(fs_rights_base);
+    let fs_rights_inheriting = dec_rights(fs_rights_inheriting);
+    let fs_flags = dec_fdflags(fs_flags);
+
+    // which open mode do we need?
+    let read = fs_rights_base & (host::__WASI_RIGHT_FD_READ | host::__WASI_RIGHT_FD_READDIR) != 0;
+    let write = fs_rights_base
+        & (host::__WASI_RIGHT_FD_DATASYNC
+            | host::__WASI_RIGHT_FD_WRITE
+            | host::__WASI_RIGHT_FD_ALLOCATE
+            | host::__WASI_RIGHT_FD_FILESTAT_SET_SIZE)
+        != 0;
+
+    println!("read={}, write={}", read, write);
+
+    wasm32::__WASI_ENOTSUP
 }
 
 #[wasi_common_cbindgen]

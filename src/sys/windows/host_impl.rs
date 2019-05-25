@@ -5,6 +5,7 @@
 use crate::host;
 
 use std::marker::PhantomData;
+use std::os::windows::prelude::*;
 use std::slice;
 use winapi::shared::{ntdef, ws2def};
 
@@ -81,4 +82,29 @@ pub unsafe fn iovec_to_win<'a>(iovec: &'a host::__wasi_iovec_t) -> IoVec<'a> {
 pub unsafe fn iovec_to_win_mut<'a>(iovec: &'a mut host::__wasi_iovec_t) -> IoVecMut<'a> {
     let slice = slice::from_raw_parts_mut(iovec.buf as *mut u8, iovec.buf_len);
     IoVecMut::new(slice)
+}
+
+pub fn writev<'a>(raw_handle: RawHandle, iovecs: &[IoVec<'a>]) -> Result<usize, ()> {
+    use winapi::shared::minwindef::{DWORD, LPVOID};
+    use winapi::shared::ws2def::WSABUF;
+    use winapi::um::fileapi::WriteFile;
+
+    let buf = iovecs
+        .iter()
+        .find(|b| !b.as_slice().is_empty())
+        .map_or(&[][..], |b| b.as_slice());
+
+    let mut host_nwritten = 0;
+    let len = std::cmp::min(buf.len(), <DWORD>::max_value() as usize) as DWORD;
+    unsafe {
+        WriteFile(
+            raw_handle,
+            buf.as_ptr() as LPVOID,
+            len,
+            &mut host_nwritten,
+            std::ptr::null_mut(),
+        )
+    };
+
+    Ok(host_nwritten as usize)
 }
