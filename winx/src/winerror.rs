@@ -25,8 +25,12 @@ pub enum WinError {
 
 impl WinError {
     pub fn last() -> Self {
+        Self::from_u32(unsafe { GetLastError() })
+    }
+
+    pub fn from_u32(err: u32) -> Self {
         use WinError::*;
-        match unsafe { GetLastError() } {
+        match err {
             winerror::ERROR_SUCCESS => ERROR_SUCCESS,
             winerror::ERROR_INVALID_FUNCTION => ERROR_INVALID_FUNCTION,
             _ => UnknownError,

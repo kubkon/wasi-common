@@ -1,3 +1,4 @@
+#![allow(non_camel_case_types)]
 use crate::{winerror, Result};
 use std::os::windows::prelude::RawHandle;
 use winapi::shared::minwindef::FALSE;

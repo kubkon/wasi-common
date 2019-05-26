@@ -152,72 +152,15 @@ pub fn fd_fdstat_get(
         host_fdstat.fs_rights_base = fe.rights_base;
         host_fdstat.fs_rights_inheriting = fe.rights_inheriting;
 
-        use winapi::shared::winerror::ERROR_SUCCESS;
-        use winapi::shared::{minwindef, ntdef};
-        use winapi::um::aclapi::GetSecurityInfo;
-        use winapi::um::fileapi::GetFileType;
-        use winapi::um::securitybaseapi::{GetAce, IsValidAcl};
-        use winapi::um::{accctrl, winbase, winnt};
-
-        unsafe {
-            match GetFileType(fe.fd_object.raw_handle) {
-                winbase::FILE_TYPE_DISK => {
-                    let mut dacl = 0 as winnt::PACL;
-                    let mut sec_desc = 0 as winnt::PSECURITY_DESCRIPTOR;
-
-                    if GetSecurityInfo(
-                        fe.fd_object.raw_handle,
-                        accctrl::SE_FILE_OBJECT,
-                        winnt::DACL_SECURITY_INFORMATION,
-                        std::ptr::null_mut(),
-                        std::ptr::null_mut(),
-                        &mut dacl,
-                        std::ptr::null_mut(),
-                        &mut sec_desc,
-                    ) != ERROR_SUCCESS
-                    {
-                        return wasm32::__WASI_EBADF;
-                    }
-
-                    if IsValidAcl(dacl) == 0 {
-                        return wasm32::__WASI_EBADF;
-                    }
-
-                    let count = (*dacl).AceCount;
-                    let mut ace = 0 as winnt::PVOID;
-
-                    if GetAce(dacl, 0, &mut ace) == 0 {
-                        return wasm32::__WASI_EBADF;
-                    }
-
-                    let header = (*(ace as winnt::PACCESS_ALLOWED_ACE)).Header.AceType;
-                    let mask = (*(ace as winnt::PACCESS_ALLOWED_ACE)).Mask;
-
-                    let mut fdflags = 0;
-                    if mask & winnt::FILE_APPEND_DATA != 0 {
-                        fdflags |= host::__WASI_FDFLAG_APPEND;
-                    }
-                    if mask & winnt::SYNCHRONIZE != 0 {
-                        if mask & winnt::FILE_WRITE_DATA != 0 {
-                            fdflags |= host::__WASI_FDFLAG_DSYNC;
-                        }
-                        if mask & winnt::FILE_READ_DATA != 0 {
-                            fdflags |= host::__WASI_FDFLAG_RSYNC;
-                        }
-                        if mask & winnt::FILE_WRITE_ATTRIBUTES != 0 {
-                            fdflags |= host::__WASI_FDFLAG_SYNC;
-                        }
-                    }
-
-                    // TODO figure out NONBLOCK equivalent
-                    // perhaps FILE_CREATE_PIPE_INSTANCE?
-
-                    host_fdstat.fs_flags = fdflags;
-                    wasm32::__WASI_ESUCCESS
-                }
-                // TODO handle sockets, etc.
-                _ => wasm32::__WASI_EBADF,
+        use winx::file::AccessRight;
+        match winx::file::get_file_access_rights(fe.fd_object.raw_handle)
+            .map(AccessRight::from_bits_truncate)
+        {
+            Ok(rights) => {
+                host_fdstat.fs_flags = host_impl::fdflags_from_win(rights);
+                wasm32::__WASI_ESUCCESS
             }
+            Err(e) => host_impl::errno_from_win(e),
         }
     } else {
         wasm32::__WASI_EBADF
