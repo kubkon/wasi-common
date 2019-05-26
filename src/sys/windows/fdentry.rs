@@ -1,5 +1,5 @@
-use crate::host;
 use super::host_impl;
+use crate::host;
 
 use std::fs::File;
 use std::os::windows::prelude::{AsRawHandle, FromRawHandle, IntoRawHandle, RawHandle};

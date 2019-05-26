@@ -13,7 +13,22 @@ use wasi_common_cbindgen::wasi_common_cbindgen;
 
 #[wasi_common_cbindgen]
 pub fn fd_close(wasi_ctx: &mut WasiCtx, fd: wasm32::__wasi_fd_t) -> wasm32::__wasi_errno_t {
-    unimplemented!("fd_close")
+    let fd = dec_fd(fd);
+    if let Some(fdent) = wasi_ctx.fds.get(&fd) {
+        // can't close preopened files
+        if fdent.preopen_path.is_some() {
+            return wasm32::__WASI_ENOTSUP;
+        }
+    }
+    if let Some(mut fdent) = wasi_ctx.fds.remove(&fd) {
+        fdent.fd_object.needs_close = false;
+        match winx::handle::close(fdent.fd_object.raw_handle) {
+            Ok(_) => wasm32::__WASI_ESUCCESS,
+            Err(e) => host_impl::errno_from_win(e),
+        }
+    } else {
+        wasm32::__WASI_EBADF
+    }
 }
 
 #[wasi_common_cbindgen]
@@ -56,7 +71,36 @@ pub fn fd_read(
     iovs_len: wasm32::size_t,
     nread: wasm32::uintptr_t,
 ) -> wasm32::__wasi_errno_t {
-    unimplemented!("fd_read")
+    let fd = dec_fd(fd);
+    let mut iovs = match dec_iovec_slice(memory, iovs_ptr, iovs_len) {
+        Ok(iovs) => iovs,
+        Err(e) => return enc_errno(e),
+    };
+
+    let fe = match wasi_ctx.get_fd_entry(fd, host::__WASI_RIGHT_FD_READ.into(), 0) {
+        Ok(fe) => fe,
+        Err(e) => return enc_errno(e),
+    };
+
+    let mut iovs: Vec<winx::io::IoVecMut> = iovs
+        .iter_mut()
+        .map(|iov| unsafe { host_impl::iovec_to_win_mut(iov) })
+        .collect();
+
+    let host_nread = match winx::io::readv(fe.fd_object.raw_handle, &mut iovs) {
+        Ok(len) => len,
+        Err(e) => return host_impl::errno_from_win(e),
+    };
+
+    if host_nread == 0 {
+        // we hit eof, so remove the fdentry from the context
+        let mut fe = wasi_ctx.fds.remove(&fd).expect("file entry is still there");
+        fe.fd_object.needs_close = false;
+    }
+
+    enc_usize_byref(memory, nread, host_nread)
+        .map(|_| wasm32::__WASI_ESUCCESS)
+        .unwrap_or_else(|e| e)
 }
 
 #[wasi_common_cbindgen]
