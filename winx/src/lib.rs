@@ -20,6 +20,7 @@
     )
 )]
 
+pub mod file;
 pub mod handle;
 pub mod io;
 pub mod winerror;

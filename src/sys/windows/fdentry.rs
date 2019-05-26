@@ -1,4 +1,5 @@
 use crate::host;
+use super::host_impl;
 
 use std::fs::File;
 use std::os::windows::prelude::{AsRawHandle, FromRawHandle, IntoRawHandle, RawHandle};
@@ -68,53 +69,48 @@ pub unsafe fn determine_type_rights(
     ),
     host::__wasi_errno_t,
 > {
-    use winapi::um::fileapi::GetFileType;
-    use winapi::um::winbase;
-
     let (ty, rights_base, rights_inheriting) = {
-        match GetFileType(raw_handle) {
-            winbase::FILE_TYPE_CHAR => {
-                // character file: LPT device or console
-                // TODO: rule out LPT device
+        let file_type = winx::file::get_file_type(raw_handle).map_err(host_impl::errno_from_win)?;
+        if file_type.is_char() {
+            // character file: LPT device or console
+            // TODO: rule out LPT device
+            (
+                host::__WASI_FILETYPE_CHARACTER_DEVICE,
+                host::RIGHTS_TTY_BASE,
+                host::RIGHTS_TTY_BASE,
+            )
+        } else if file_type.is_disk() {
+            // disk file: file, dir or disk device
+            let file = File::from_raw_handle(raw_handle);
+            let meta = file.metadata();
+            std::mem::forget(file);
+            let meta = meta.map_err(|_| host::__WASI_EINVAL)?;
+            if meta.is_dir() {
                 (
-                    host::__WASI_FILETYPE_CHARACTER_DEVICE,
-                    host::RIGHTS_TTY_BASE,
-                    host::RIGHTS_TTY_BASE,
+                    host::__WASI_FILETYPE_DIRECTORY,
+                    host::RIGHTS_DIRECTORY_BASE,
+                    host::RIGHTS_DIRECTORY_INHERITING,
                 )
-            }
-            winbase::FILE_TYPE_DISK => {
-                // disk file: file, dir or disk device
-                let file = File::from_raw_handle(raw_handle);
-                let meta = file.metadata();
-                std::mem::forget(file);
-                let meta = meta.map_err(|_| host::__WASI_EINVAL)?;
-                if meta.is_dir() {
-                    (
-                        host::__WASI_FILETYPE_DIRECTORY,
-                        host::RIGHTS_DIRECTORY_BASE,
-                        host::RIGHTS_DIRECTORY_INHERITING,
-                    )
-                } else if meta.is_file() {
-                    let mut rights = host::RIGHTS_REGULAR_FILE_BASE;
-                    if meta.permissions().readonly() {
-                        // on Windows, there is only a readonly flag available
-                        rights &= !host::__WASI_RIGHT_FD_WRITE;
-                    }
-
-                    (
-                        host::__WASI_FILETYPE_REGULAR_FILE,
-                        rights,
-                        host::RIGHTS_REGULAR_FILE_INHERITING,
-                    )
-                } else {
-                    return Err(host::__WASI_EINVAL);
+            } else if meta.is_file() {
+                let mut rights = host::RIGHTS_REGULAR_FILE_BASE;
+                if meta.permissions().readonly() {
+                    // on Windows, there is only a readonly flag available
+                    rights &= !host::__WASI_RIGHT_FD_WRITE;
                 }
+
+                (
+                    host::__WASI_FILETYPE_REGULAR_FILE,
+                    rights,
+                    host::RIGHTS_REGULAR_FILE_INHERITING,
+                )
+            } else {
+                return Err(host::__WASI_EINVAL);
             }
-            winbase::FILE_TYPE_PIPE => {
-                // pipe object: socket, named pipe or anonymous pipe
-                unimplemented!()
-            }
-            _ => return Err(host::__WASI_EINVAL),
+        } else if file_type.is_pipe() {
+            // pipe object: socket, named pipe or anonymous pipe
+            unimplemented!()
+        } else {
+            return Err(host::__WASI_EINVAL);
         }
     };
     Ok((ty, rights_base, rights_inheriting))
