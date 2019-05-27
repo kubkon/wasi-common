@@ -41,10 +41,25 @@ impl FdEntry {
 }
 
 impl FromRawHandle for FdEntry {
-    // TODO: implement
     unsafe fn from_raw_handle(raw_handle: RawHandle) -> Self {
-        let (ty, rights_base, rights_inheriting) =
-            determine_type_rights(raw_handle).expect("can determine file rights");
+        use winx::file::{get_file_access_rights, AccessRight};
+
+        let (ty, mut rights_base, rights_inheriting) =
+            determine_type_rights(raw_handle).expect("can determine type rights");
+
+        if ty != host::__WASI_FILETYPE_CHARACTER_DEVICE {
+            // TODO: is there a way around this? On windows, it seems
+            // we cannot check access rights for stdout/in handles
+            let rights =
+                get_file_access_rights(raw_handle).expect("can determine file access rights");
+            let rights = AccessRight::from_bits_truncate(rights);
+            if rights.contains(AccessRight::READ) {
+                rights_base |= host::__WASI_RIGHT_FD_READ;
+            }
+            if rights.contains(AccessRight::WRITE) {
+                rights_base |= host::__WASI_RIGHT_FD_WRITE;
+            }
+        }
 
         Self {
             fd_object: FdObject {
@@ -92,15 +107,9 @@ pub unsafe fn determine_type_rights(
                     host::RIGHTS_DIRECTORY_INHERITING,
                 )
             } else if meta.is_file() {
-                let mut rights = host::RIGHTS_REGULAR_FILE_BASE;
-                if meta.permissions().readonly() {
-                    // on Windows, there is only a readonly flag available
-                    rights &= !host::__WASI_RIGHT_FD_WRITE;
-                }
-
                 (
                     host::__WASI_FILETYPE_REGULAR_FILE,
-                    rights,
+                    host::RIGHTS_REGULAR_FILE_BASE,
                     host::RIGHTS_REGULAR_FILE_INHERITING,
                 )
             } else {
@@ -108,7 +117,12 @@ pub unsafe fn determine_type_rights(
             }
         } else if file_type.is_pipe() {
             // pipe object: socket, named pipe or anonymous pipe
-            unimplemented!()
+            // TODO: what about pipes, etc?
+            (
+                host::__WASI_FILETYPE_SOCKET_STREAM,
+                host::RIGHTS_SOCKET_BASE,
+                host::RIGHTS_SOCKET_INHERITING,
+            )
         } else {
             return Err(host::__WASI_EINVAL);
         }

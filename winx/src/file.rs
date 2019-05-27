@@ -1,7 +1,12 @@
 use crate::{winerror, Result};
-use std::os::windows::prelude::RawHandle;
-use winapi::shared::minwindef;
+use std::ffi::{OsStr, OsString};
+use std::os::windows::prelude::{OsStrExt, OsStringExt, RawHandle};
+use winapi::shared::minwindef::{self, DWORD};
 use winapi::um::{fileapi::GetFileType, winbase, winnt};
+
+/// Maximum total path length for Unicode in Windows.
+/// [Maximum path length limitation]: https://docs.microsoft.com/en-us/windows/desktop/FileIO/naming-a-file#maximum-path-length-limitation
+pub const WIDE_MAX_PATH: DWORD = 0x7fff;
 
 #[derive(Debug, Copy, Clone)]
 pub struct FileType(minwindef::DWORD);
@@ -91,6 +96,14 @@ bitflags! {
         const WRITE_DAC = winnt::WRITE_DAC;
         /// The right to change the owner in the object's security descriptor.
         const WRITE_OWNER = winnt::WRITE_OWNER;
+        const ACCESS_SYSTEM_SECURITY = winnt::ACCESS_SYSTEM_SECURITY;
+        const MAXIMUM_ALLOWED = winnt::MAXIMUM_ALLOWED;
+        const RESERVED1 = 0x4000000;
+        const RESERVED2 = 0x8000000;
+        const GENERIC_ALL = winnt::GENERIC_ALL;
+        const GENERIC_EXECUTE = winnt::GENERIC_EXECUTE;
+        const GENERIC_WRITE = winnt::GENERIC_WRITE;
+        const GENERIC_READ = winnt::GENERIC_READ;
     }
 }
 
@@ -132,5 +145,57 @@ pub fn get_file_access_rights(handle: RawHandle) -> Result<minwindef::DWORD> {
         // TODO: check for PACCESS_ALLOWED_ACE in Ace before accessing
         // let header = (*(ace as winnt::PACCESS_ALLOWED_ACE)).Header.AceType;
         Ok((*(ace as winnt::PACCESS_ALLOWED_ACE)).Mask)
+    }
+}
+
+pub fn str_to_wide<S: AsRef<OsStr>>(s: S) -> Vec<u16> {
+    let mut win_unicode: Vec<u16> = s.as_ref().encode_wide().collect();
+    win_unicode.push(0);
+    win_unicode
+}
+
+pub fn openat(dir_handle: RawHandle, path: &OsStr, rights: AccessRight) -> Result<RawHandle> {
+    use std::path::PathBuf;
+    use winapi::um::fileapi::{self, CreateFileW, GetFinalPathNameByHandleW};
+    use winapi::um::handleapi::INVALID_HANDLE_VALUE;
+
+    let mut raw_dir_path: Vec<u16> = Vec::with_capacity(WIDE_MAX_PATH as usize);
+    raw_dir_path.resize(WIDE_MAX_PATH as usize, 0);
+
+    let read_len = unsafe {
+        GetFinalPathNameByHandleW(dir_handle, raw_dir_path.as_mut_ptr(), WIDE_MAX_PATH, 0)
+    };
+
+    if read_len == 0 {
+        // failed to read
+        return Err(winerror::WinError::last());
+    }
+    if read_len > WIDE_MAX_PATH {
+        // TODO: find good error for path too long
+        return Err(winerror::WinError::ERROR_PATH_NOT_FOUND);
+    }
+
+    // concatenate paths
+    raw_dir_path.resize(read_len as usize, 0);
+    let mut out_path = PathBuf::from(OsString::from_wide(&raw_dir_path));
+    out_path.push(path);
+    let raw_out_path = str_to_wide(out_path);
+
+    let handle = unsafe {
+        CreateFileW(
+            raw_out_path.as_ptr(),
+            rights.bits(),
+            0,
+            std::ptr::null_mut(),
+            fileapi::OPEN_ALWAYS,
+            winnt::FILE_ATTRIBUTE_NORMAL,
+            std::ptr::null_mut(),
+        )
+    };
+
+    if handle == INVALID_HANDLE_VALUE {
+        Err(winerror::WinError::last())
+    } else {
+        Ok(handle)
     }
 }

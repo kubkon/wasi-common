@@ -1,6 +1,7 @@
 #![allow(non_camel_case_types)]
 #![allow(unused_unsafe)]
 #![allow(unused)]
+use super::fdentry::{determine_type_rights, FdEntry};
 use super::host_impl;
 
 use crate::ctx::WasiCtx;
@@ -8,7 +9,8 @@ use crate::memory::*;
 use crate::{host, wasm32};
 
 use std::cmp;
-use std::os::windows::prelude::OsStrExt;
+use std::ffi::{OsStr, OsString};
+use std::os::windows::prelude::{FromRawHandle, OsStrExt, OsStringExt};
 use wasi_common_cbindgen::wasi_common_cbindgen;
 
 #[wasi_common_cbindgen]
@@ -297,8 +299,8 @@ pub fn path_open(
     let dirfd = dec_fd(dirfd);
     let dirflags = dec_lookupflags(dirflags);
     let oflags = dec_oflags(oflags);
-    let fs_rights_base = dec_rights(fs_rights_base);
-    let fs_rights_inheriting = dec_rights(fs_rights_inheriting);
+    let fs_rights_base = 264240792; //dec_rights(fs_rights_base);
+    let fs_rights_inheriting = 268435455; //dec_rights(fs_rights_inheriting);
     let fs_flags = dec_fdflags(fs_flags);
 
     // which open mode do we need?
@@ -310,9 +312,49 @@ pub fn path_open(
             | host::__WASI_RIGHT_FD_FILESTAT_SET_SIZE)
         != 0;
 
-    println!("read={}, write={}", read, write);
+    let path = match dec_slice_of::<u8>(memory, path_ptr, path_len) {
+        Ok(slice) => {
+            OsString::from_wide(&slice.into_iter().map(|&x| x as u16).collect::<Vec<u16>>())
+        }
+        Err(e) => return enc_errno(e),
+    };
 
-    wasm32::__WASI_ENOTSUP
+    let fd = match wasi_ctx.get_fd_entry(dirfd, fs_rights_base, fs_rights_inheriting) {
+        Ok(fd) => fd,
+        Err(e) => return e,
+    };
+    let new_handle = match winx::file::openat(
+        fd.fd_object.raw_handle,
+        &path,
+        winx::file::AccessRight::GENERIC_ALL,
+    ) {
+        Ok(handle) => handle,
+        Err(e) => return host_impl::errno_from_win(e),
+    };
+
+    // Determine the type of the new file descriptor and which rights contradict with this type
+    let guest_fd = match unsafe { determine_type_rights(new_handle) } {
+        Err(e) => {
+            // if `close` fails, note it but do not override the underlying errno
+            winx::handle::close(new_handle).unwrap_or_else(|e| {
+                dbg!(e);
+            });
+            return enc_errno(e);
+        }
+        Ok((_ty, max_base, max_inheriting)) => {
+            let mut fe = unsafe { FdEntry::from_raw_handle(new_handle) };
+            fe.rights_base &= max_base;
+            fe.rights_inheriting &= max_inheriting;
+            match wasi_ctx.insert_fd_entry(fe) {
+                Ok(fd) => fd,
+                Err(e) => return enc_errno(e),
+            }
+        }
+    };
+
+    enc_fd_byref(memory, fd_out_ptr, guest_fd)
+        .map(|_| wasm32::__WASI_ESUCCESS)
+        .unwrap_or_else(|e| e)
 }
 
 #[wasi_common_cbindgen]
