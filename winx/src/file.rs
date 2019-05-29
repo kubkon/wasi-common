@@ -171,8 +171,8 @@ pub fn openat(dir_handle: RawHandle, path: &OsStr, rights: AccessRight) -> Resul
         return Err(winerror::WinError::last());
     }
     if read_len > WIDE_MAX_PATH {
-        // TODO: find good error for path too long
-        return Err(winerror::WinError::ERROR_PATH_NOT_FOUND);
+        // path too long (practically probably impossible)
+        return Err(winerror::WinError::ERROR_BAD_PATHNAME);
     }
 
     // concatenate paths
