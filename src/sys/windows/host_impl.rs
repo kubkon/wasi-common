@@ -64,3 +64,30 @@ pub fn fdflags_from_win(rights: winx::file::AccessRight) -> host::__wasi_fdflags
     // TODO: this requires further investigation
     fdflags
 }
+
+pub fn win_from_oflags(
+    oflags: host::__wasi_oflags_t,
+) -> (
+    winx::file::CreationDisposition,
+    winx::file::FlagsAndAttributes,
+) {
+    use winx::file::{CreationDisposition, FlagsAndAttributes};
+
+    let win_flags_attrs = if oflags & host::__WASI_O_DIRECTORY != 0 {
+        FlagsAndAttributes::FILE_FLAG_BACKUP_SEMANTICS
+    } else {
+        FlagsAndAttributes::FILE_ATTRIBUTE_NORMAL
+    };
+
+    let win_disp = if oflags & host::__WASI_O_CREAT != 0 && oflags & host::__WASI_O_EXCL != 0 {
+        CreationDisposition::CREATE_NEW
+    } else if oflags & host::__WASI_O_CREAT != 0 {
+        CreationDisposition::CREATE_ALWAYS
+    } else if oflags & host::__WASI_O_TRUNC != 0 {
+        CreationDisposition::TRUNCATE_EXISTING
+    } else {
+        CreationDisposition::OPEN_EXISTING
+    };
+
+    (win_disp, win_flags_attrs)
+}

@@ -1,8 +1,9 @@
+#![allow(non_camel_case_types)]
 use crate::{winerror, Result};
 use std::ffi::{OsStr, OsString};
 use std::os::windows::prelude::{OsStrExt, OsStringExt, RawHandle};
 use winapi::shared::minwindef::{self, DWORD};
-use winapi::um::{fileapi::GetFileType, winbase, winnt};
+use winapi::um::{fileapi, fileapi::GetFileType, winbase, winnt};
 
 /// Maximum total path length for Unicode in Windows.
 /// [Maximum path length limitation]: https://docs.microsoft.com/en-us/windows/desktop/FileIO/naming-a-file#maximum-path-length-limitation
@@ -52,6 +53,82 @@ pub fn get_file_type(handle: RawHandle) -> Result<FileType> {
     }
 }
 
+#[derive(Debug, Clone, Copy, Eq, PartialEq)]
+#[repr(u32)]
+pub enum CreationDisposition {
+    NO_DISPOSITION = 0,
+    /// Creates a new file, only if it does not already exist.
+    /// If the specified file exists, the function fails and the last-error code is
+    /// set to ERROR_FILE_EXISTS (80).
+    ///
+    /// If the specified file does not exist and is a valid path to a writable location,
+    /// a new file is created.
+    CREATE_NEW = fileapi::CREATE_NEW,
+    /// Creates a new file, always.
+    /// If the specified file exists and is writable, the function overwrites the file,
+    /// the function succeeds, and last-error code is set to ERROR_ALREADY_EXISTS (183).
+    ///
+    /// If the specified file does not exist and is a valid path, a new file is created,
+    /// the function succeeds, and the last-error code is set to zero.
+    CREATE_ALWAYS = fileapi::CREATE_ALWAYS,
+    /// Opens a file or device, only if it exists.
+    /// If the specified file or device does not exist, the function fails and the
+    /// last-error code is set to ERROR_FILE_NOT_FOUND (2).
+    OPEN_EXISTING = fileapi::OPEN_EXISTING,
+    /// Opens a file, always.
+    /// If the specified file exists, the function succeeds and the last-error code is
+    /// set to ERROR_ALREADY_EXISTS (183).
+    ///
+    /// If the specified file does not exist and is a valid path to a writable location,
+    /// the function creates a file and the last-error code is set to zero.
+    OPEN_ALWAYS = fileapi::OPEN_ALWAYS,
+    /// Opens a file and truncates it so that its size is zero bytes, only if it exists.
+    /// If the specified file does not exist, the function fails and the last-error code
+    /// is set to ERROR_FILE_NOT_FOUND (2).
+    ///
+    /// The calling process must open the file with the GENERIC_WRITE bit set as part
+    /// of the dwDesiredAccess parameter.
+    TRUNCATE_EXISTING = fileapi::TRUNCATE_EXISTING,
+}
+
+impl CreationDisposition {
+    pub fn from_u32(disp: u32) -> Self {
+        use CreationDisposition::*;
+        match disp {
+            fileapi::CREATE_NEW => CREATE_NEW,
+            fileapi::CREATE_ALWAYS => CREATE_ALWAYS,
+            fileapi::OPEN_EXISTING => OPEN_EXISTING,
+            fileapi::OPEN_ALWAYS => OPEN_ALWAYS,
+            fileapi::TRUNCATE_EXISTING => TRUNCATE_EXISTING,
+            _ => NO_DISPOSITION,
+        }
+    }
+}
+
+bitflags! {
+    pub struct FlagsAndAttributes: minwindef::DWORD {
+        const FILE_ATTRIBUTE_ARCHIVE = winnt::FILE_ATTRIBUTE_ARCHIVE;
+        const FILE_ATTRIBUTE_ENCRYPTED = winnt::FILE_ATTRIBUTE_ENCRYPTED;
+        const FILE_ATTRIBUTE_HIDDEN = winnt::FILE_ATTRIBUTE_HIDDEN;
+        const FILE_ATTRIBUTE_NORMAL = winnt::FILE_ATTRIBUTE_NORMAL;
+        const FILE_ATTRIBUTE_OFFLINE = winnt::FILE_ATTRIBUTE_OFFLINE;
+        const FILE_ATTRIBUTE_READONLY = winnt::FILE_ATTRIBUTE_READONLY;
+        const FILE_ATTRIBUTE_SYSTEM = winnt::FILE_ATTRIBUTE_SYSTEM;
+        const FILE_ATTRIBUTE_TEMPORARY = winnt::FILE_ATTRIBUTE_TEMPORARY;
+        const FILE_FLAG_BACKUP_SEMANTICS = winbase::FILE_FLAG_BACKUP_SEMANTICS;
+        const FILE_FLAG_DELETE_ON_CLOSE = winbase::FILE_FLAG_DELETE_ON_CLOSE;
+        const FILE_FLAG_NO_BUFFERING = winbase::FILE_FLAG_NO_BUFFERING;
+        const FILE_FLAG_OPEN_NO_RECALL = winbase::FILE_FLAG_OPEN_NO_RECALL;
+        const FILE_FLAG_OPEN_REPARSE_POINT = winbase::FILE_FLAG_OPEN_REPARSE_POINT;
+        const FILE_FLAG_OVERLAPPED = winbase::FILE_FLAG_OVERLAPPED;
+        const FILE_FLAG_POSIX_SEMANTICS = winbase::FILE_FLAG_POSIX_SEMANTICS;
+        const FILE_FLAG_RANDOM_ACCESS = winbase::FILE_FLAG_RANDOM_ACCESS;
+        const FILE_FLAG_SESSION_AWARE = winbase::FILE_FLAG_SESSION_AWARE;
+        const FILE_FLAG_SEQUENTIAL_SCAN = winbase::FILE_FLAG_SEQUENTIAL_SCAN;
+        const FILE_FLAG_WRITE_THROUGH = winbase::FILE_FLAG_WRITE_THROUGH;
+    }
+}
+
 bitflags! {
     /// [Access mask]: https://docs.microsoft.com/en-us/windows/desktop/SecAuthZ/access-mask
     pub struct AccessRight: minwindef::DWORD {
@@ -96,13 +173,21 @@ bitflags! {
         const WRITE_DAC = winnt::WRITE_DAC;
         /// The right to change the owner in the object's security descriptor.
         const WRITE_OWNER = winnt::WRITE_OWNER;
+        /// It is used to indicate access to a system access control list (SACL).
         const ACCESS_SYSTEM_SECURITY = winnt::ACCESS_SYSTEM_SECURITY;
+        /// Maximum allowed.
         const MAXIMUM_ALLOWED = winnt::MAXIMUM_ALLOWED;
+        /// Reserved
         const RESERVED1 = 0x4000000;
+        /// Reserved
         const RESERVED2 = 0x8000000;
+        /// Provides all possible access rights.
         const GENERIC_ALL = winnt::GENERIC_ALL;
+        /// Provides execute access.
         const GENERIC_EXECUTE = winnt::GENERIC_EXECUTE;
+        /// Provides write access.
         const GENERIC_WRITE = winnt::GENERIC_WRITE;
+        /// Provides read access.
         const GENERIC_READ = winnt::GENERIC_READ;
     }
 }
@@ -157,13 +242,19 @@ pub fn str_to_wide<S: AsRef<OsStr>>(s: S) -> Vec<u16> {
 
 /// Opens a `path` relative to a directory handle `dir_handle`, and returns a handle to the
 /// newly opened file. The newly opened file will have the specified `AccessRight` `rights`.
-/// 
+///
 /// If the `path` is absolute, then the directory handle `dir_handle` is ignored.
-pub fn openat<S: AsRef<OsStr>>(dir_handle: RawHandle, path: S, rights: AccessRight) -> Result<RawHandle> {
+pub fn openat<S: AsRef<OsStr>>(
+    dir_handle: RawHandle,
+    path: S,
+    rights: AccessRight,
+    disposition: CreationDisposition,
+    flags_attrs: FlagsAndAttributes,
+) -> Result<RawHandle> {
     use std::path::PathBuf;
-    use winapi::um::fileapi::{self, CreateFileW, GetFinalPathNameByHandleW};
+    use winapi::um::fileapi::{CreateFileW, GetFinalPathNameByHandleW};
     use winapi::um::handleapi::INVALID_HANDLE_VALUE;
-    
+
     // check if specified path is absolute
     let path = PathBuf::from(path.as_ref());
     let out_path = if path.is_absolute() {
@@ -199,8 +290,8 @@ pub fn openat<S: AsRef<OsStr>>(dir_handle: RawHandle, path: S, rights: AccessRig
             rights.bits(),
             0,
             std::ptr::null_mut(),
-            fileapi::OPEN_ALWAYS,
-            winnt::FILE_ATTRIBUTE_NORMAL,
+            disposition as minwindef::DWORD,
+            flags_attrs.bits(),
             std::ptr::null_mut(),
         )
     };

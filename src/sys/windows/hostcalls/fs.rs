@@ -296,11 +296,13 @@ pub fn path_open(
     fs_flags: wasm32::__wasi_fdflags_t,
     fd_out_ptr: wasm32::uintptr_t,
 ) -> wasm32::__wasi_errno_t {
+    use winx::file::{AccessRight, CreationDisposition};
+
     let dirfd = dec_fd(dirfd);
     let dirflags = dec_lookupflags(dirflags);
     let oflags = dec_oflags(oflags);
-    let fs_rights_base = 264240792; //dec_rights(fs_rights_base);
-    let fs_rights_inheriting = 268435455; //dec_rights(fs_rights_inheriting);
+    let fs_rights_base = dec_rights(fs_rights_base);
+    let fs_rights_inheriting = dec_rights(fs_rights_inheriting);
     let fs_flags = dec_fdflags(fs_flags);
 
     // which open mode do we need?
@@ -312,6 +314,37 @@ pub fn path_open(
             | host::__WASI_RIGHT_FD_FILESTAT_SET_SIZE)
         != 0;
 
+    let mut win_all_rights = AccessRight::empty();
+    if read {
+        win_all_rights |= AccessRight::GENERIC_READ;
+    }
+    if write {
+        win_all_rights |= AccessRight::GENERIC_WRITE;
+    }
+
+    // which rights are needed on the dirfd?
+    let mut needed_base = host::__WASI_RIGHT_PATH_OPEN;
+    let mut needed_inheriting = fs_rights_base | fs_rights_inheriting;
+
+    // convert open flags
+    let (win_create_disp, win_flags_attrs) = host_impl::win_from_oflags(oflags);
+    if win_create_disp == CreationDisposition::CREATE_NEW {
+        needed_base |= host::__WASI_RIGHT_PATH_CREATE_FILE;
+    } else if win_create_disp == CreationDisposition::CREATE_ALWAYS {
+        needed_base |= host::__WASI_RIGHT_PATH_CREATE_FILE;
+    } else if win_create_disp == CreationDisposition::TRUNCATE_EXISTING {
+        needed_inheriting |= host::__WASI_RIGHT_PATH_FILESTAT_SET_SIZE;
+    }
+
+    // // convert file descriptor flags
+    // nix_all_oflags.insert(host_impl::nix_from_fdflags(fs_flags));
+    // if nix_all_oflags.contains(OFlag::O_DSYNC) {
+    //     needed_inheriting |= host::__WASI_RIGHT_FD_DATASYNC;
+    // }
+    // if nix_all_oflags.intersects(host_impl::O_RSYNC | OFlag::O_SYNC) {
+    //     needed_inheriting |= host::__WASI_RIGHT_FD_SYNC;
+    // }
+
     let path = match dec_slice_of::<u8>(memory, path_ptr, path_len) {
         Ok(slice) => {
             OsString::from_wide(&slice.into_iter().map(|&x| x as u16).collect::<Vec<u16>>())
@@ -319,14 +352,16 @@ pub fn path_open(
         Err(e) => return enc_errno(e),
     };
 
-    let fd = match wasi_ctx.get_fd_entry(dirfd, fs_rights_base, fs_rights_inheriting) {
+    let fd = match wasi_ctx.get_fd_entry(dirfd, needed_base, needed_inheriting) {
         Ok(fd) => fd,
         Err(e) => return e,
     };
     let new_handle = match winx::file::openat(
         fd.fd_object.raw_handle,
         &path,
-        winx::file::AccessRight::GENERIC_ALL,
+        win_all_rights,
+        win_create_disp,
+        win_flags_attrs,
     ) {
         Ok(handle) => handle,
         Err(e) => return host_impl::errno_from_win(e),
