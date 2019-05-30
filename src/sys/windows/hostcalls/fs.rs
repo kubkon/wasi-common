@@ -2,6 +2,7 @@
 #![allow(unused_unsafe)]
 #![allow(unused)]
 use super::fdentry::{determine_type_rights, FdEntry};
+use super::fs_helpers::*;
 use super::host_impl;
 
 use crate::ctx::WasiCtx;
@@ -296,7 +297,7 @@ pub fn path_open(
     fs_flags: wasm32::__wasi_fdflags_t,
     fd_out_ptr: wasm32::uintptr_t,
 ) -> wasm32::__wasi_errno_t {
-    use winx::file::{AccessRight, CreationDisposition};
+    use winx::file::{AccessRight, CreationDisposition, FlagsAndAttributes};
 
     let dirfd = dec_fd(dirfd);
     let dirflags = dec_lookupflags(dirflags);
@@ -352,20 +353,24 @@ pub fn path_open(
         Err(e) => return enc_errno(e),
     };
 
-    let fd = match wasi_ctx.get_fd_entry(dirfd, needed_base, needed_inheriting) {
-        Ok(fd) => fd,
-        Err(e) => return e,
-    };
-    let new_handle = match winx::file::openat(
-        fd.fd_object.raw_handle,
-        &path,
-        win_all_rights,
-        win_create_disp,
-        win_flags_attrs,
+    let (dir, path) = match path_get(
+        wasi_ctx,
+        dirfd,
+        dirflags,
+        path,
+        needed_base,
+        needed_inheriting,
+        !win_flags_attrs.contains(FlagsAndAttributes::FILE_FLAG_BACKUP_SEMANTICS),
     ) {
-        Ok(handle) => handle,
-        Err(e) => return host_impl::errno_from_win(e),
+        Ok((dir, path)) => (dir, path),
+        Err(e) => return enc_errno(e),
     };
+
+    let new_handle =
+        match winx::file::openat(dir, &path, win_all_rights, win_create_disp, win_flags_attrs) {
+            Ok(handle) => handle,
+            Err(e) => return host_impl::errno_from_win(e),
+        };
 
     // Determine the type of the new file descriptor and which rights contradict with this type
     let guest_fd = match unsafe { determine_type_rights(new_handle) } {
