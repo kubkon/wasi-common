@@ -107,24 +107,107 @@ impl CreationDisposition {
 
 bitflags! {
     pub struct FlagsAndAttributes: minwindef::DWORD {
+        /// A file or directory that is an archive file or directory.
+        /// Applications typically use this attribute to mark files for backup or removal.
         const FILE_ATTRIBUTE_ARCHIVE = winnt::FILE_ATTRIBUTE_ARCHIVE;
+        /// A file or directory that is compressed. For a file, all of the data in the file is compressed.
+        /// For a directory, compression is the default for newly created files and subdirectories.
+        const FILE_ATTRIBUTE_COMPRESSED = winnt::FILE_ATTRIBUTE_COMPRESSED;
+        /// This value is reserved for system use.
+        const FILE_ATTRIBUTE_DEVICE = winnt::FILE_ATTRIBUTE_DEVICE;
+        /// The handle that identifies a directory.
+        const FILE_ATTRIBUTE_DIRECTORY = winnt::FILE_ATTRIBUTE_DIRECTORY;
+        /// A file or directory that is encrypted. For a file, all data streams in the file are encrypted.
+        /// For a directory, encryption is the default for newly created files and subdirectories.
         const FILE_ATTRIBUTE_ENCRYPTED = winnt::FILE_ATTRIBUTE_ENCRYPTED;
+        /// The file or directory is hidden. It is not included in an ordinary directory listing.
         const FILE_ATTRIBUTE_HIDDEN = winnt::FILE_ATTRIBUTE_HIDDEN;
+        /// The directory or user data stream is configured with integrity (only supported on ReFS volumes).
+        /// It is not included in an ordinary directory listing. The integrity setting persists with the file if it's renamed.
+        /// If a file is copied the destination file will have integrity set if either the source file or destination directory have integrity set.
+        const FILE_ATTRIBUTE_INTEGRITY_STREAM = winnt::FILE_ATTRIBUTE_INTEGRITY_STREAM;
+        /// A file that does not have other attributes set. This attribute is valid only when used alone.
         const FILE_ATTRIBUTE_NORMAL = winnt::FILE_ATTRIBUTE_NORMAL;
+        /// The file or directory is not to be indexed by the content indexing service.
+        const FILE_ATTRIBUTE_NOT_CONTENT_INDEXED = winnt::FILE_ATTRIBUTE_NOT_CONTENT_INDEXED;
+        /// The user data stream not to be read by the background data integrity scanner (AKA scrubber).
+        /// When set on a directory it only provides inheritance. This flag is only supported on Storage Spaces and ReFS volumes.
+        /// It is not included in an ordinary directory listing.
+        const FILE_ATTRIBUTE_NO_SCRUB_DATA = winnt::FILE_ATTRIBUTE_NO_SCRUB_DATA;
+        /// The data of a file is not available immediately.
+        /// This attribute indicates that the file data is physically moved to offline storage.
+        /// This attribute is used by Remote Storage, which is the hierarchical storage management software.
+        /// Applications should not arbitrarily change this attribute.
         const FILE_ATTRIBUTE_OFFLINE = winnt::FILE_ATTRIBUTE_OFFLINE;
+        /// A file that is read-only. Applications can read the file, but cannot write to it or delete it.
+        /// This attribute is not honored on directories.
         const FILE_ATTRIBUTE_READONLY = winnt::FILE_ATTRIBUTE_READONLY;
+        /// When this attribute is set, it means that the file or directory is not fully present locally.
+        /// For a file that means that not all of its data is on local storage (e.g. it may be sparse with some data still in remote storage).
+        /// For a directory it means that some of the directory contents are being virtualized from another location.
+        /// Reading the file / enumerating the directory will be more expensive than normal, e.g. it will cause at least some of the
+        /// file/directory content to be fetched from a remote store. Only kernel-mode callers can set this bit.
+        const FILE_ATTRIBUTE_RECALL_ON_DATA_ACCESS = winnt::FILE_ATTRIBUTE_RECALL_ON_DATA_ACCESS;
+        /// This attribute only appears in directory enumeration classes (FILE_DIRECTORY_INFORMATION, FILE_BOTH_DIR_INFORMATION, etc.).
+        /// When this attribute is set, it means that the file or directory has no physical representation on the local system; the item is virtual.
+        /// Opening the item will be more expensive than normal, e.g. it will cause at least some of it to be fetched from a remote store.
+        const FILE_ATTRIBUTE_RECALL_ON_OPEN = winnt::FILE_ATTRIBUTE_RECALL_ON_OPEN;
+        /// A file or directory that has an associated reparse point, or a file that is a symbolic link.
+        const FILE_ATTRIBUTE_REPARSE_POINT = winnt::FILE_ATTRIBUTE_REPARSE_POINT;
+        /// A file that is a sparse file.
+        const FILE_ATTRIBUTE_SPARSE_FILE = winnt::FILE_ATTRIBUTE_SPARSE_FILE;
+        /// A file or directory that the operating system uses a part of, or uses exclusively.
         const FILE_ATTRIBUTE_SYSTEM = winnt::FILE_ATTRIBUTE_SYSTEM;
+        /// A file that is being used for temporary storage.
+        /// File systems avoid writing data back to mass storage if sufficient cache memory is available, because typically,
+        /// an application deletes a temporary file after the handle is closed. In that scenario, the system can entirely
+        /// avoid writing the data. Otherwise, the data is written after the handle is closed.
         const FILE_ATTRIBUTE_TEMPORARY = winnt::FILE_ATTRIBUTE_TEMPORARY;
+        /// This value is reserved for system use.
+        const FILE_ATTRIBUTE_VIRTUAL = winnt::FILE_ATTRIBUTE_VIRTUAL;
+        /// The file is being opened or created for a backup or restore operation.
+        /// The system ensures that the calling process overrides file security checks when the process has SE_BACKUP_NAME and SE_RESTORE_NAME privileges.
+        /// You must set this flag to obtain a handle to a directory. A directory handle can be passed to some functions instead of a file handle.
         const FILE_FLAG_BACKUP_SEMANTICS = winbase::FILE_FLAG_BACKUP_SEMANTICS;
+        /// The file is to be deleted immediately after all of its handles are closed, which includes the specified handle and any other open or duplicated handles.
+        /// If there are existing open handles to a file, the call fails unless they were all opened with the FILE_SHARE_DELETE share mode.
+        /// Subsequent open requests for the file fail, unless the FILE_SHARE_DELETE share mode is specified.
         const FILE_FLAG_DELETE_ON_CLOSE = winbase::FILE_FLAG_DELETE_ON_CLOSE;
+        /// The file or device is being opened with no system caching for data reads and writes.
+        /// This flag does not affect hard disk caching or memory mapped files.
+        /// There are strict requirements for successfully working with files opened with
+        /// CreateFile using the FILE_FLAG_NO_BUFFERING flag.
         const FILE_FLAG_NO_BUFFERING = winbase::FILE_FLAG_NO_BUFFERING;
+        /// The file data is requested, but it should continue to be located in remote storage.
+        /// It should not be transported back to local storage. This flag is for use by remote storage systems.
         const FILE_FLAG_OPEN_NO_RECALL = winbase::FILE_FLAG_OPEN_NO_RECALL;
+        /// Normal reparse point processing will not occur; CreateFile will attempt to open the reparse point.
+        /// When a file is opened, a file handle is returned, whether or not the filter that controls the reparse point is operational.
+        /// This flag cannot be used with the CREATE_ALWAYS flag.
+        /// If the file is not a reparse point, then this flag is ignored.
         const FILE_FLAG_OPEN_REPARSE_POINT = winbase::FILE_FLAG_OPEN_REPARSE_POINT;
+        /// The file or device is being opened or created for asynchronous I/O.
+        /// When subsequent I/O operations are completed on this handle, the event specified in the OVERLAPPED structure will be set to the signaled state.
+        /// If this flag is specified, the file can be used for simultaneous read and write operations.
+        /// If this flag is not specified, then I/O operations are serialized, even if the calls to the read and write functions specify an OVERLAPPED structure.
         const FILE_FLAG_OVERLAPPED = winbase::FILE_FLAG_OVERLAPPED;
+        /// Access will occur according to POSIX rules. This includes allowing multiple files with names,
+        /// differing only in case, for file systems that support that naming. Use care when using this option,
+        /// because files created with this flag may not be accessible by applications that are written for MS-DOS or 16-bit Windows.
         const FILE_FLAG_POSIX_SEMANTICS = winbase::FILE_FLAG_POSIX_SEMANTICS;
+        /// Access is intended to be random. The system can use this as a hint to optimize file caching.
+        /// This flag has no effect if the file system does not support cached I/O and FILE_FLAG_NO_BUFFERING.
         const FILE_FLAG_RANDOM_ACCESS = winbase::FILE_FLAG_RANDOM_ACCESS;
+        /// The file or device is being opened with session awareness.
+        /// If this flag is not specified, then per-session devices (such as a device using RemoteFX USB Redirection)
+        /// cannot be opened by processes running in session 0. This flag has no effect for callers not in session 0.
+        /// This flag is supported only on server editions of Windows.
         const FILE_FLAG_SESSION_AWARE = winbase::FILE_FLAG_SESSION_AWARE;
+        /// Access is intended to be sequential from beginning to end. The system can use this as a hint to optimize file caching.
+        /// This flag should not be used if read-behind (that is, reverse scans) will be used.
+        /// This flag has no effect if the file system does not support cached I/O and FILE_FLAG_NO_BUFFERING.
         const FILE_FLAG_SEQUENTIAL_SCAN = winbase::FILE_FLAG_SEQUENTIAL_SCAN;
+        /// Write operations will not go through any intermediate cache, they will go directly to disk.
         const FILE_FLAG_WRITE_THROUGH = winbase::FILE_FLAG_WRITE_THROUGH;
     }
 }
@@ -134,31 +217,37 @@ bitflags! {
     pub struct AccessRight: minwindef::DWORD {
         /// For a file object, the right to read the corresponding file data.
         /// For a directory object, the right to read the corresponding directory data.
-        const READ = winnt::FILE_READ_DATA;
+        const FILE_READ_DATA = winnt::FILE_READ_DATA;
+        const FILE_LIST_DIRECTORY = winnt::FILE_LIST_DIRECTORY;
         /// For a file object, the right to write data to the file.
         /// For a directory object, the right to create a file in the directory.
-        const WRITE = winnt::FILE_WRITE_DATA;
+        const FILE_WRITE_DATA = winnt::FILE_WRITE_DATA;
+        const FILE_ADD_FILE = winnt::FILE_ADD_FILE;
         /// For a file object, the right to append data to the file.
         /// (For local files, write operations will not overwrite existing data
         /// if this flag is specified without FILE_WRITE_DATA.)
         /// For a directory object, the right to create a subdirectory.
         /// For a named pipe, the right to create a pipe.
-        const APPEND = winnt::FILE_APPEND_DATA;
+        const FILE_APPEND_DATA = winnt::FILE_APPEND_DATA;
+        const FILE_ADD_SUBDIRECTORY = winnt::FILE_ADD_SUBDIRECTORY;
+        const FILE_CREATE_PIPE_INSTANCE = winnt::FILE_CREATE_PIPE_INSTANCE;
         /// The right to read extended file attributes.
-        const READ_EA = winnt::FILE_READ_EA;
+        const FILE_READ_EA = winnt::FILE_READ_EA;
         /// The right to write extended file attributes.
-        const WRITE_EA = winnt::FILE_WRITE_EA;
+        const FILE_WRITE_EA = winnt::FILE_WRITE_EA;
+        /// For a file, the right to execute FILE_EXECUTE.
         /// For a directory, the right to traverse the directory.
         /// By default, users are assigned the BYPASS_TRAVERSE_CHECKING privilege,
         /// which ignores the FILE_TRAVERSE access right.
-        const TRAVERSE = winnt::FILE_TRAVERSE;
+        const FILE_EXECUTE = winnt::FILE_EXECUTE;
+        const FILE_TRAVERSE = winnt::FILE_TRAVERSE;
         /// For a directory, the right to delete a directory and all
         /// the files it contains, including read-only files.
-        const DELETE_CHILD = winnt::FILE_DELETE_CHILD;
+        const FILE_DELETE_CHILD = winnt::FILE_DELETE_CHILD;
         /// The right to read file attributes.
-        const READ_ATTRIBUTES = winnt::FILE_READ_ATTRIBUTES;
+        const FILE_READ_ATTRIBUTES = winnt::FILE_READ_ATTRIBUTES;
         /// The right to write file attributes.
-        const WRITE_ATTRIBUTES = winnt::FILE_WRITE_ATTRIBUTES;
+        const FILE_WRITE_ATTRIBUTES = winnt::FILE_WRITE_ATTRIBUTES;
         /// The right to delete the object.
         const DELETE = winnt::DELETE;
         /// The right to read the information in the object's security descriptor,
@@ -182,13 +271,39 @@ bitflags! {
         /// Reserved
         const RESERVED2 = 0x8000000;
         /// Provides all possible access rights.
+        /// This is convenience flag which is translated by the OS into actual [`FILE_GENERIC_ALL`] union.
         const GENERIC_ALL = winnt::GENERIC_ALL;
         /// Provides execute access.
         const GENERIC_EXECUTE = winnt::GENERIC_EXECUTE;
         /// Provides write access.
+        /// This is convenience flag which is translated by the OS into actual [`FILE_GENERIC_WRITE`] union.
         const GENERIC_WRITE = winnt::GENERIC_WRITE;
         /// Provides read access.
+        /// This is convenience flag which is translated by the OS into actual [`FILE_GENERIC_READ`] union.
         const GENERIC_READ = winnt::GENERIC_READ;
+        /// Provides read access.
+        /// This flag is a union of: FILE_READ_ATTRIBUTES, FILE_READ_DATA, FILE_READ_EA, READ_CONTROL, SYNCHRONIZE
+        const FILE_GENERIC_READ = AccessRight::FILE_READ_ATTRIBUTES.bits
+            | AccessRight::FILE_READ_DATA.bits
+            | AccessRight::FILE_READ_EA.bits
+            | AccessRight::READ_CONTROL.bits
+            | AccessRight::SYNCHRONIZE.bits;
+        /// Provides write access.
+        /// This flag is a union of: FILE_WRITE_ATTRIBUTES, FILE_WRITE_DATA, FILE_WRITE_EA, READ_CONTROL, SYNCHRONIZE
+        const FILE_GENERIC_WRITE = AccessRight::FILE_WRITE_ATTRIBUTES.bits
+            | AccessRight::FILE_WRITE_DATA.bits
+            | AccessRight::FILE_WRITE_EA.bits
+            | AccessRight::READ_CONTROL.bits
+            | AccessRight::SYNCHRONIZE.bits;
+        /// Provides execute access.
+        /// This flag is a union of: FILE_WRITE_ATTRIBUTES, FILE_WRITE_DATA, FILE_WRITE_EA, READ_CONTROL, SYNCHRONIZE
+        const FILE_GENERIC_EXECUTE = AccessRight::FILE_EXECUTE.bits
+            | AccessRight::FILE_READ_ATTRIBUTES.bits
+            | AccessRight::READ_CONTROL.bits
+            | AccessRight::SYNCHRONIZE.bits;
+        /// Provides all accesses.
+        /// This flag is a union of: FILE_GENERIC_READ, FILE_GENERIC_WRITE, FILE_GENERIC_EXECUTE
+        const FILE_GENERIC_ALL = AccessRight::FILE_GENERIC_READ.bits | AccessRight::FILE_GENERIC_WRITE.bits | AccessRight::FILE_GENERIC_EXECUTE.bits;
     }
 }
 

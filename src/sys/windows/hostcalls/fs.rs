@@ -316,10 +316,10 @@ pub fn path_open(
 
     let mut win_all_rights = AccessRight::empty();
     if read {
-        win_all_rights |= AccessRight::GENERIC_READ;
+        win_all_rights |= AccessRight::FILE_GENERIC_READ;
     }
     if write {
-        win_all_rights |= AccessRight::GENERIC_WRITE;
+        win_all_rights |= AccessRight::FILE_GENERIC_WRITE;
     }
 
     // which rights are needed on the dirfd?

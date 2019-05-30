@@ -53,10 +53,10 @@ impl FromRawHandle for FdEntry {
             let rights =
                 get_file_access_rights(raw_handle).expect("can determine file access rights");
             let rights = AccessRight::from_bits_truncate(rights);
-            if rights.contains(AccessRight::READ) {
+            if rights.contains(AccessRight::FILE_GENERIC_READ) {
                 rights_base |= host::__WASI_RIGHT_FD_READ;
             }
-            if rights.contains(AccessRight::WRITE) {
+            if rights.contains(AccessRight::FILE_GENERIC_WRITE) {
                 rights_base |= host::__WASI_RIGHT_FD_WRITE;
             }
         }

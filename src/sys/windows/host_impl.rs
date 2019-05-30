@@ -39,17 +39,17 @@ pub fn fdflags_from_win(rights: winx::file::AccessRight) -> host::__wasi_fdflags
     use winx::file::AccessRight;
     let mut fdflags = 0;
     // TODO verify this!
-    if rights.contains(AccessRight::APPEND) {
+    if rights.contains(AccessRight::FILE_APPEND_DATA) {
         fdflags |= host::__WASI_FDFLAG_APPEND;
     }
     if rights.contains(AccessRight::SYNCHRONIZE) {
-        if rights.contains(AccessRight::WRITE) {
+        if rights.contains(AccessRight::FILE_WRITE_DATA) {
             fdflags |= host::__WASI_FDFLAG_DSYNC;
         }
-        if rights.contains(AccessRight::READ) {
+        if rights.contains(AccessRight::FILE_READ_DATA) {
             fdflags |= host::__WASI_FDFLAG_RSYNC;
         }
-        if rights.contains(AccessRight::WRITE_ATTRIBUTES) {
+        if rights.contains(AccessRight::FILE_WRITE_ATTRIBUTES) {
             fdflags |= host::__WASI_FDFLAG_SYNC;
         }
     }
