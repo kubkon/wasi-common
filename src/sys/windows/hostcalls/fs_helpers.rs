@@ -105,9 +105,10 @@ pub fn path_get<P: AsRef<OsStr>>(
                             || (Path::new(head).is_dir() && !needs_final_component)
                         {
                             match winx::file::openat(
-                                *dir_stack.first().expect("dir_stack is never empty"),
+                                *dir_stack.last().expect("dir_stack is never empty"),
                                 head,
                                 winx::file::AccessRight::FILE_GENERIC_READ,
+                                winx::file::ShareMode::FILE_SHARE_READ,
                                 winx::file::CreationDisposition::OPEN_EXISTING,
                                 winx::file::FlagsAndAttributes::FILE_FLAG_BACKUP_SEMANTICS,
                             ) {

@@ -297,7 +297,7 @@ pub fn path_open(
     fs_flags: wasm32::__wasi_fdflags_t,
     fd_out_ptr: wasm32::uintptr_t,
 ) -> wasm32::__wasi_errno_t {
-    use winx::file::{AccessRight, CreationDisposition, FlagsAndAttributes};
+    use winx::file::{AccessRight, CreationDisposition, FlagsAndAttributes, ShareMode};
 
     let dirfd = dec_fd(dirfd);
     let dirflags = dec_lookupflags(dirflags);
@@ -315,12 +315,16 @@ pub fn path_open(
             | host::__WASI_RIGHT_FD_FILESTAT_SET_SIZE)
         != 0;
 
-    let mut win_all_rights = AccessRight::empty();
+    let mut win_rights = AccessRight::empty();
+    let mut win_share_mode = ShareMode::empty();
     if read {
-        win_all_rights |= AccessRight::FILE_GENERIC_READ;
+        win_rights |= AccessRight::FILE_GENERIC_READ;
+        win_share_mode |= ShareMode::FILE_SHARE_READ;
     }
     if write {
-        win_all_rights |= AccessRight::FILE_GENERIC_WRITE;
+        win_rights |= AccessRight::FILE_GENERIC_WRITE;
+        win_share_mode |= ShareMode::FILE_SHARE_WRITE;
+        win_share_mode |= ShareMode::FILE_SHARE_DELETE;
     }
 
     // which rights are needed on the dirfd?
@@ -366,11 +370,17 @@ pub fn path_open(
         Err(e) => return enc_errno(e),
     };
 
-    let new_handle =
-        match winx::file::openat(dir, &path, win_all_rights, win_create_disp, win_flags_attrs) {
-            Ok(handle) => handle,
-            Err(e) => return host_impl::errno_from_win(e),
-        };
+    let new_handle = match winx::file::openat(
+        dir,
+        &path,
+        win_rights,
+        win_share_mode,
+        win_create_disp,
+        win_flags_attrs,
+    ) {
+        Ok(handle) => handle,
+        Err(e) => return host_impl::errno_from_win(e),
+    };
 
     // Determine the type of the new file descriptor and which rights contradict with this type
     let guest_fd = match unsafe { determine_type_rights(new_handle) } {

@@ -53,6 +53,25 @@ pub fn get_file_type(handle: RawHandle) -> Result<FileType> {
     }
 }
 
+bitflags! {
+    pub struct ShareMode: minwindef::DWORD {
+        /// Prevents other processes from opening a file or device if they request delete, read, or write access.
+        const NO_SHARE = 0x0;
+        /// Enables subsequent open operations on a file or device to request read access.
+        /// Otherwise, other processes cannot open the file or device if they request read access.
+        /// If this flag is not specified, but the file or device has been opened for read access, the function fails.
+        const FILE_SHARE_READ = winnt::FILE_SHARE_READ;
+        /// Enables subsequent open operations on a file or device to request write access.
+        /// Otherwise, other processes cannot open the file or device if they request write access.
+        /// If this flag is not specified, but the file or device has been opened for write access or has a file mapping with write access, the function fails.
+        const FILE_SHARE_WRITE = winnt::FILE_SHARE_WRITE;
+        /// Enables subsequent open operations on a file or device to request delete access.
+        /// Otherwise, other processes cannot open the file or device if they request delete access.
+        /// If this flag is not specified, but the file or device has been opened for delete access, the function fails.
+        const FILE_SHARE_DELETE = winnt::FILE_SHARE_DELETE;
+    }
+}
+
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
 #[repr(u32)]
 pub enum CreationDisposition {
@@ -363,6 +382,7 @@ pub fn openat<S: AsRef<OsStr>>(
     dir_handle: RawHandle,
     path: S,
     rights: AccessRight,
+    share_mode: ShareMode,
     disposition: CreationDisposition,
     flags_attrs: FlagsAndAttributes,
 ) -> Result<RawHandle> {
@@ -398,12 +418,14 @@ pub fn openat<S: AsRef<OsStr>>(
         out_path
     };
 
+    // dbg!(&out_path);
+
     let raw_out_path = str_to_wide(out_path);
     let handle = unsafe {
         CreateFileW(
             raw_out_path.as_ptr(),
             rights.bits(),
-            0,
+            share_mode.bits(),
             std::ptr::null_mut(),
             disposition as minwindef::DWORD,
             flags_attrs.bits(),
