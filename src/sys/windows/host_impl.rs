@@ -8,8 +8,25 @@ use std::slice;
 
 pub fn errno_from_win(error: winx::winerror::WinError) -> host::__wasi_errno_t {
     // TODO: implement error mapping between Windows and WASI
+    use winx::winerror::WinError::*;
     match error {
-        _ => host::__WASI_EBADF,
+        ERROR_SUCCESS => host::__WASI_ESUCCESS,
+        ERROR_BAD_ENVIRONMENT => host::__WASI_E2BIG,
+        ERROR_FILE_NOT_FOUND | ERROR_PATH_NOT_FOUND => host::__WASI_ENOENT,
+        ERROR_TOO_MANY_OPEN_FILES => host::__WASI_ENFILE,
+        ERROR_ACCESS_DENIED => host::__WASI_EACCES,
+        ERROR_INVALID_HANDLE => host::__WASI_EBADF,
+        ERROR_NOT_ENOUGH_MEMORY | ERROR_OUTOFMEMORY => host::__WASI_ENOMEM,
+        ERROR_DIR_NOT_EMPTY => host::__WASI_ENOTEMPTY,
+        ERROR_DEV_NOT_EXIST => host::__WASI_ENODEV,
+        ERROR_NOT_READY | ERROR_BUSY => host::__WASI_EBUSY,
+        ERROR_NOT_SUPPORTED => host::__WASI_ENOTSUP,
+        ERROR_FILE_EXISTS => host::__WASI_EEXIST,
+        ERROR_BROKEN_PIPE => host::__WASI_EPIPE,
+        ERROR_BUFFER_OVERFLOW => host::__WASI_ENAMETOOLONG,
+        ERROR_DISK_FULL => host::__WASI_ENOSPC,
+        ERROR_SHARING_BUFFER_EXCEEDED => host::__WASI_ENFILE,
+        _ => host::__WASI_ENOTSUP,
     }
 }
 

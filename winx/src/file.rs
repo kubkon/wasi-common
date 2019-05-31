@@ -408,7 +408,7 @@ pub fn openat<S: AsRef<OsStr>>(
         }
         if read_len > WIDE_MAX_PATH {
             // path too long (practically probably impossible)
-            return Err(winerror::WinError::ERROR_BAD_PATHNAME);
+            return Err(winerror::WinError::ERROR_BUFFER_OVERFLOW);
         }
 
         // concatenate paths
