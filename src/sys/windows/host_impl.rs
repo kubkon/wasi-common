@@ -52,6 +52,29 @@ pub unsafe fn iovec_to_win_mut<'a>(iovec: &'a mut host::__wasi_iovec_t) -> winx:
     winx::io::IoVecMut::new(slice)
 }
 
+pub fn win_from_fdflags(
+    fdflags: host::__wasi_fdflags_t,
+) -> (winx::file::AccessRight, winx::file::FlagsAndAttributes) {
+    use winx::file::{AccessRight, FlagsAndAttributes};
+    // TODO verify this!
+    let mut win_rights = AccessRight::empty();
+    let mut win_flags_attrs = FlagsAndAttributes::empty();
+
+    if fdflags & host::__WASI_FDFLAG_NONBLOCK != 0 {
+        win_flags_attrs.insert(FlagsAndAttributes::FILE_FLAG_OVERLAPPED);
+    }
+    if fdflags & host::__WASI_FDFLAG_APPEND != 0 {
+        win_rights.insert(AccessRight::FILE_APPEND_DATA);
+    }
+    if fdflags & host::__WASI_FDFLAG_DSYNC != 0
+        || fdflags & host::__WASI_FDFLAG_RSYNC != 0
+        || fdflags & host::__WASI_FDFLAG_SYNC != 0
+    {
+        win_rights.insert(AccessRight::SYNCHRONIZE);
+    }
+    (win_rights, win_flags_attrs)
+}
+
 pub fn fdflags_from_win(rights: winx::file::AccessRight) -> host::__wasi_fdflags_t {
     use winx::file::AccessRight;
     let mut fdflags = 0;
@@ -60,15 +83,9 @@ pub fn fdflags_from_win(rights: winx::file::AccessRight) -> host::__wasi_fdflags
         fdflags |= host::__WASI_FDFLAG_APPEND;
     }
     if rights.contains(AccessRight::SYNCHRONIZE) {
-        if rights.contains(AccessRight::FILE_WRITE_DATA) {
-            fdflags |= host::__WASI_FDFLAG_DSYNC;
-        }
-        if rights.contains(AccessRight::FILE_READ_DATA) {
-            fdflags |= host::__WASI_FDFLAG_RSYNC;
-        }
-        if rights.contains(AccessRight::FILE_WRITE_ATTRIBUTES) {
-            fdflags |= host::__WASI_FDFLAG_SYNC;
-        }
+        fdflags |= host::__WASI_FDFLAG_DSYNC;
+        fdflags |= host::__WASI_FDFLAG_RSYNC;
+        fdflags |= host::__WASI_FDFLAG_SYNC;
     }
     // The NONBLOCK equivalent is FILE_FLAG_OVERLAPPED
     // but it seems winapi doesn't provide a mechanism

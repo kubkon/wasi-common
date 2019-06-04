@@ -332,7 +332,7 @@ pub fn path_open(
     let mut needed_inheriting = fs_rights_base | fs_rights_inheriting;
 
     // convert open flags
-    let (win_create_disp, win_flags_attrs) = host_impl::win_from_oflags(oflags);
+    let (win_create_disp, mut win_flags_attrs) = host_impl::win_from_oflags(oflags);
     if win_create_disp == CreationDisposition::CREATE_NEW {
         needed_base |= host::__WASI_RIGHT_PATH_CREATE_FILE;
     } else if win_create_disp == CreationDisposition::CREATE_ALWAYS {
@@ -341,14 +341,14 @@ pub fn path_open(
         needed_inheriting |= host::__WASI_RIGHT_PATH_FILESTAT_SET_SIZE;
     }
 
-    // // convert file descriptor flags
-    // nix_all_oflags.insert(host_impl::nix_from_fdflags(fs_flags));
-    // if nix_all_oflags.contains(OFlag::O_DSYNC) {
-    //     needed_inheriting |= host::__WASI_RIGHT_FD_DATASYNC;
-    // }
-    // if nix_all_oflags.intersects(host_impl::O_RSYNC | OFlag::O_SYNC) {
-    //     needed_inheriting |= host::__WASI_RIGHT_FD_SYNC;
-    // }
+    // convert file descriptor flags
+    let win_fdflags_res = host_impl::win_from_fdflags(fs_flags);
+    win_rights.insert(win_fdflags_res.0);
+    win_flags_attrs.insert(win_fdflags_res.1);
+    if win_rights.contains(AccessRight::SYNCHRONIZE) {
+        needed_inheriting |= host::__WASI_RIGHT_FD_DATASYNC;
+        needed_inheriting |= host::__WASI_RIGHT_FD_SYNC;
+    }
 
     let path = match dec_slice_of::<u8>(memory, path_ptr, path_len) {
         Ok(slice) => {
