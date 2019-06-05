@@ -69,6 +69,9 @@ bitflags! {
         /// Otherwise, other processes cannot open the file or device if they request delete access.
         /// If this flag is not specified, but the file or device has been opened for delete access, the function fails.
         const FILE_SHARE_DELETE = winnt::FILE_SHARE_DELETE;
+        const ALL = ShareMode::FILE_SHARE_READ.bits
+            | ShareMode::FILE_SHARE_WRITE.bits
+            | ShareMode::FILE_SHARE_DELETE.bits;
     }
 }
 
@@ -374,6 +377,38 @@ pub fn str_to_wide<S: AsRef<OsStr>>(s: S) -> Vec<u16> {
     win_unicode
 }
 
+fn get_path_by_handle(handle: RawHandle) -> Result<OsString> {
+    use winapi::um::fileapi::GetFinalPathNameByHandleW;
+
+    let mut raw_path: Vec<u16> = Vec::with_capacity(WIDE_MAX_PATH as usize);
+    raw_path.resize(WIDE_MAX_PATH as usize, 0);
+
+    let read_len =
+        unsafe { GetFinalPathNameByHandleW(handle, raw_path.as_mut_ptr(), WIDE_MAX_PATH, 0) };
+
+    if read_len == 0 {
+        // failed to read
+        return Err(winerror::WinError::last());
+    }
+    if read_len > WIDE_MAX_PATH {
+        // path too long (practically probably impossible)
+        return Err(winerror::WinError::ERROR_BUFFER_OVERFLOW);
+    }
+
+    // concatenate paths
+    raw_path.resize(read_len as usize, 0);
+    Ok(OsString::from_wide(&raw_path))
+}
+
+fn strip_extended_prefix<P: AsRef<OsStr>>(path: P) -> OsString {
+    let path = str_to_wide(path);
+    if &[92, 92, 63, 92] == &path[0..4] {
+        OsString::from_wide(&path[4..])
+    } else {
+        OsString::from_wide(&path)
+    }
+}
+
 /// Opens a `path` relative to a directory handle `dir_handle`, and returns a handle to the
 /// newly opened file. The newly opened file will have the specified `AccessRight` `rights`.
 ///
@@ -382,12 +417,11 @@ pub fn openat<S: AsRef<OsStr>>(
     dir_handle: RawHandle,
     path: S,
     rights: AccessRight,
-    share_mode: ShareMode,
     disposition: CreationDisposition,
     flags_attrs: FlagsAndAttributes,
 ) -> Result<RawHandle> {
     use std::path::PathBuf;
-    use winapi::um::fileapi::{CreateFileW, GetFinalPathNameByHandleW};
+    use winapi::um::fileapi::CreateFileW;
     use winapi::um::handleapi::INVALID_HANDLE_VALUE;
 
     // check if specified path is absolute
@@ -395,37 +429,21 @@ pub fn openat<S: AsRef<OsStr>>(
     let out_path = if path.is_absolute() {
         path
     } else {
-        let mut raw_dir_path: Vec<u16> = Vec::with_capacity(WIDE_MAX_PATH as usize);
-        raw_dir_path.resize(WIDE_MAX_PATH as usize, 0);
-
-        let read_len = unsafe {
-            GetFinalPathNameByHandleW(dir_handle, raw_dir_path.as_mut_ptr(), WIDE_MAX_PATH, 0)
-        };
-
-        if read_len == 0 {
-            // failed to read
-            return Err(winerror::WinError::last());
-        }
-        if read_len > WIDE_MAX_PATH {
-            // path too long (practically probably impossible)
-            return Err(winerror::WinError::ERROR_BUFFER_OVERFLOW);
-        }
-
+        let dir_path = get_path_by_handle(dir_handle)?;
         // concatenate paths
-        raw_dir_path.resize(read_len as usize, 0);
-        let mut out_path = PathBuf::from(OsString::from_wide(&raw_dir_path));
+        let mut out_path = PathBuf::from(&dir_path);
         out_path.push(path);
-        out_path
+        out_path.into()
     };
 
-    // dbg!(&out_path);
-
-    let raw_out_path = str_to_wide(out_path);
+    // this is needed so that we can use relative paths
+    let raw_out_path = strip_extended_prefix(out_path);
+    let raw_out_path = str_to_wide(raw_out_path);
     let handle = unsafe {
         CreateFileW(
             raw_out_path.as_ptr(),
             rights.bits(),
-            share_mode.bits(),
+            ShareMode::ALL.bits(),
             std::ptr::null_mut(),
             disposition as minwindef::DWORD,
             flags_attrs.bits(),

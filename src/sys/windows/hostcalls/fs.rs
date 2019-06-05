@@ -315,16 +315,12 @@ pub fn path_open(
             | host::__WASI_RIGHT_FD_FILESTAT_SET_SIZE)
         != 0;
 
-    let mut win_rights = AccessRight::empty();
-    let mut win_share_mode = ShareMode::empty();
+    let mut win_rights = AccessRight::READ_CONTROL;
     if read {
-        win_rights |= AccessRight::FILE_GENERIC_READ;
-        win_share_mode |= ShareMode::FILE_SHARE_READ;
+        win_rights.insert(AccessRight::FILE_GENERIC_READ);
     }
     if write {
-        win_rights |= AccessRight::FILE_GENERIC_WRITE;
-        win_share_mode |= ShareMode::FILE_SHARE_WRITE;
-        win_share_mode |= ShareMode::FILE_SHARE_DELETE;
+        win_rights.insert(AccessRight::FILE_GENERIC_WRITE);
     }
 
     // which rights are needed on the dirfd?
@@ -374,7 +370,6 @@ pub fn path_open(
         dir,
         &path,
         win_rights,
-        win_share_mode,
         win_create_disp,
         win_flags_attrs,
     ) {

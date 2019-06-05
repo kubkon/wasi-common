@@ -74,6 +74,10 @@ win_error_expand! {
     ERROR_LABEL_TOO_LONG,
     /// The requested resource is in use.
     ERROR_BUSY,
+    /// The file name, directory name, or volume label syntax is incorrect.
+    ERROR_INVALID_NAME,
+    /// The process cannot access the file because it is being used by another process.
+    ERROR_SHARING_VIOLATION,
 }
 
 impl WinError {
