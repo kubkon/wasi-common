@@ -96,10 +96,8 @@ pub unsafe fn determine_type_rights(
             )
         } else if file_type.is_disk() {
             // disk file: file, dir or disk device
-            let file = File::from_raw_handle(raw_handle);
-            let meta = file.metadata();
-            std::mem::forget(file);
-            let meta = meta.map_err(|_| host::__WASI_EINVAL)?;
+            let file = std::mem::ManuallyDrop::new(File::from_raw_handle(raw_handle));
+            let meta = file.metadata().map_err(|_| host::__WASI_EINVAL)?;
             if meta.is_dir() {
                 (
                     host::__WASI_FILETYPE_DIRECTORY,
