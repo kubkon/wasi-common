@@ -64,7 +64,7 @@ pub fn path_get<P: AsRef<OsStr>>(
     loop {
         match path_stack.pop() {
             Some(cur_path) => {
-                dbg!(&cur_path);
+                // dbg!(&cur_path);
                 let mut components = cur_path.components();
                 let head = match components.next() {
                     None => return ret_error(&mut dir_stack, host::__WASI_ENOENT),
