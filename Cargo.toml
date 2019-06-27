@@ -15,12 +15,31 @@ failure = "0.1"
 libc = "0.2"
 rand = "0.6"
 cfg-if = "0.1.9"
+log = "0.4"
 
 [target.'cfg(unix)'.dependencies]
 nix = "0.13"
 
 [target.'cfg(windows)'.dependencies]
 winx = { path = "winx" }
+winapi = "0.3"
+
+[dev-dependencies]
+wasmtime-runtime = { git = "https://github.com/cranestation/wasmtime" }
+wasmtime-environ = { git = "https://github.com/cranestation/wasmtime" }
+wasmtime-jit = { git = "https://github.com/cranestation/wasmtime" }
+wasmtime-wasi = { git = "https://github.com/cranestation/wasmtime" }
+cranelift-codegen = "0.30.0"
+cranelift-entity = "0.30.0"
+cranelift-wasm = "0.30.0"
+cranelift-native = "0.30.0"
+target-lexicon = "0.3.0"
+
+[patch."https://github.com/CraneStation/wasi-common"]
+wasi-common = { path = "." }
+
+[build-dependencies]
+cfg-if = "0.1.9"
 
 [lib]
 name = "wasi_common"

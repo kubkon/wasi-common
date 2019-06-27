@@ -4,6 +4,9 @@
 #![allow(unused)]
 use crate::host;
 
+use std::ffi::{OsStr, OsString};
+use std::marker::PhantomData;
+use std::os::windows::prelude::{OsStrExt, OsStringExt};
 use std::slice;
 
 pub fn errno_from_win(error: winx::winerror::WinError) -> host::__wasi_errno_t {
@@ -124,4 +127,18 @@ pub fn win_from_oflags(
     };
 
     (win_disp, win_flags_attrs)
+}
+
+pub fn path_from_raw(raw_path: &[u8]) -> OsString {
+    OsString::from_wide(&raw_path.iter().map(|&x| x as u16).collect::<Vec<u16>>())
+}
+
+pub fn path_to_raw<P: AsRef<OsStr>>(path: P) -> Vec<u8> {
+    path.as_ref()
+        .encode_wide()
+        .map(u16::to_le_bytes)
+        .fold(Vec::new(), |mut acc, bytes| {
+            acc.extend_from_slice(&bytes);
+            acc
+        })
 }
