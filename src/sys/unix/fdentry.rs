@@ -1,6 +1,7 @@
 use crate::host;
 
 use std::fs::File;
+use std::io;
 use std::os::unix::prelude::{AsRawFd, FileTypeExt, FromRawFd, IntoRawFd, RawFd};
 use std::path::PathBuf;
 
@@ -34,7 +35,23 @@ impl FdEntry {
     }
 
     pub fn duplicate<F: AsRawFd>(fd: &F) -> Self {
-        unsafe { Self::from_raw_fd(nix::unistd::dup(fd.as_raw_fd()).unwrap()) }
+        unsafe { Self::duplicate_raw(fd.as_raw_fd()) }
+    }
+
+    pub unsafe fn duplicate_raw(fd: RawFd) -> Self {
+        Self::from_raw_fd(nix::unistd::dup(fd).unwrap())
+    }
+
+    pub fn duplicate_stdin() -> Self {
+        Self::duplicate(&io::stdin())
+    }
+
+    pub fn duplicate_stdout() -> Self {
+        Self::duplicate(&io::stdout())
+    }
+
+    pub fn duplicate_stderr() -> Self {
+        Self::duplicate(&io::stderr())
     }
 }
 

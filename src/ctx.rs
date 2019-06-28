@@ -7,7 +7,6 @@ use failure::{bail, format_err, Error};
 use std::collections::HashMap;
 use std::ffi::{CStr, CString};
 use std::fs::File;
-use std::io::{stderr, stdin, stdout};
 use std::path::{Path, PathBuf};
 
 pub struct WasiCtxBuilder {
@@ -62,9 +61,9 @@ impl WasiCtxBuilder {
     }
 
     pub fn inherit_stdio(mut self) -> Self {
-        self.fds.insert(0, FdEntry::duplicate(&stdin()));
-        self.fds.insert(1, FdEntry::duplicate(&stdout()));
-        self.fds.insert(2, FdEntry::duplicate(&stderr()));
+        self.fds.insert(0, FdEntry::duplicate_stdin());
+        self.fds.insert(1, FdEntry::duplicate_stdout());
+        self.fds.insert(2, FdEntry::duplicate_stderr());
         self
     }
 
