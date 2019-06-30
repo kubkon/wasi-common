@@ -21,12 +21,9 @@ pub fn fd_close(wasi_ctx: &mut WasiCtx, fd: wasm32::__wasi_fd_t) -> wasm32::__wa
             return return_enc_errno(host::__WASI_ENOTSUP);
         }
     }
-    let ret = if let Some(mut fdent) = wasi_ctx.fds.remove(&fd) {
-        fdent.fd_object.needs_close = false;
-        match hostcalls_impl::fd_close(fdent) {
-            Ok(()) => host::__WASI_ESUCCESS,
-            Err(e) => e,
-        }
+    let ret = if let Some(mut fe) = wasi_ctx.fds.remove(&fd) {
+        fe.fd_object.needs_close = true;
+        host::__WASI_ESUCCESS
     } else {
         host::__WASI_EBADF
     };
@@ -324,7 +321,7 @@ pub fn fd_fdstat_get(
     };
 
     let ret = if let Some(fe) = wasi_ctx.fds.get(&host_fd) {
-        host_fdstat.fs_filetype = fe.fd_object.ty;
+        host_fdstat.fs_filetype = fe.fd_object.file_type;
         host_fdstat.fs_rights_base = fe.rights_base;
         host_fdstat.fs_rights_inheriting = fe.rights_inheriting;
         host_fdstat.fs_flags = match hostcalls_impl::fd_fdstat_get(fe) {
@@ -1159,7 +1156,7 @@ pub fn fd_prestat_get(
     let ret = match wasi_ctx.get_fd_entry(fd, host::__WASI_RIGHT_PATH_OPEN.into(), 0) {
         Ok(fe) => {
             if let Some(po_path) = &fe.preopen_path {
-                if fe.fd_object.ty != host::__WASI_FILETYPE_DIRECTORY {
+                if fe.fd_object.file_type != host::__WASI_FILETYPE_DIRECTORY {
                     return return_enc_errno(host::__WASI_ENOTDIR);
                 }
                 enc_prestat_byref(
@@ -1206,7 +1203,7 @@ pub fn fd_prestat_dir_name(
     let ret = match wasi_ctx.get_fd_entry(fd, host::__WASI_RIGHT_PATH_OPEN.into(), 0) {
         Ok(fe) => {
             if let Some(po_path) = &fe.preopen_path {
-                if fe.fd_object.ty != host::__WASI_FILETYPE_DIRECTORY {
+                if fe.fd_object.file_type != host::__WASI_FILETYPE_DIRECTORY {
                     return return_enc_errno(host::__WASI_ENOTDIR);
                 }
                 let path_bytes = host_impl::path_to_raw(po_path);

@@ -7,7 +7,7 @@ use std::mem::ManuallyDrop;
 use std::path::PathBuf;
 
 #[derive(Debug)]
-pub(crate) enum Descriptor {
+pub enum Descriptor {
     File(ManuallyDrop<fs::File>),
     Stdin,
     Stdout,
@@ -15,7 +15,7 @@ pub(crate) enum Descriptor {
 }
 
 #[derive(Debug)]
-pub(crate) struct FdObject {
+pub struct FdObject {
     pub file_type: host::__wasi_filetype_t,
     pub descriptor: Descriptor,
     pub needs_close: bool,
@@ -23,7 +23,7 @@ pub(crate) struct FdObject {
 }
 
 #[derive(Debug)]
-pub(crate) struct FdEntry {
+pub struct FdEntry {
     pub fd_object: FdObject,
     pub rights_base: host::__wasi_rights_t,
     pub rights_inheriting: host::__wasi_rights_t,
@@ -32,9 +32,9 @@ pub(crate) struct FdEntry {
 
 impl Drop for FdObject {
     fn drop(&mut self) {
-        if let Descriptor::File(f) = self.descriptor {
+        if let Descriptor::File(f) = &mut self.descriptor {
             if self.needs_close {
-                let _ = ManuallyDrop::into_inner(f); // this drops the `file`
+                unsafe { ManuallyDrop::drop(f) }; // this drops the `file`
             }
         }
     }
