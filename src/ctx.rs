@@ -1,13 +1,12 @@
-use crate::host;
+use super::fdentry::FdEntry;
+use super::host;
 
 use crate::sys::dev_null;
-use crate::sys::fdentry::FdEntry;
 
 use failure::{bail, format_err, Error};
 use std::collections::HashMap;
 use std::ffi::{CStr, CString};
 use std::fs::File;
-use std::io::{stderr, stdin, stdout};
 use std::path::{Path, PathBuf};
 
 pub struct WasiCtxBuilder {
@@ -27,9 +26,9 @@ impl WasiCtxBuilder {
             env: HashMap::new(),
         };
 
-        builder.fds.insert(0, FdEntry::from_file(dev_null()));
-        builder.fds.insert(1, FdEntry::from_file(dev_null()));
-        builder.fds.insert(2, FdEntry::from_file(dev_null()));
+        builder.fds.insert(0, FdEntry::from(dev_null()));
+        builder.fds.insert(1, FdEntry::from(dev_null()));
+        builder.fds.insert(2, FdEntry::from(dev_null()));
 
         builder
     }
@@ -62,9 +61,9 @@ impl WasiCtxBuilder {
     }
 
     pub fn inherit_stdio(mut self) -> Self {
-        self.fds.insert(0, FdEntry::duplicate(&stdin()));
-        self.fds.insert(1, FdEntry::duplicate(&stdout()));
-        self.fds.insert(2, FdEntry::duplicate(&stderr()));
+        self.fds.insert(0, FdEntry::duplicate_stdin());
+        self.fds.insert(1, FdEntry::duplicate_stdout());
+        self.fds.insert(2, FdEntry::duplicate_stderr());
         self
     }
 
@@ -118,7 +117,7 @@ impl WasiCtxBuilder {
                     .checked_add(1)
                     .ok_or(format_err!("not enough file handles"))?;
             }
-            let mut fe = FdEntry::from_file(dir);
+            let mut fe = FdEntry::from(dir);
             fe.preopen_path = Some(guest_path);
             self.fds.insert(preopen_fd, fe);
             preopen_fd += 1;
