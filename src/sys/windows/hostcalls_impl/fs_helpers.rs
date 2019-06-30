@@ -1,12 +1,13 @@
 #![allow(non_camel_case_types)]
 #![allow(unused_unsafe)]
 
-use super::host_impl;
+use crate::sys::host_impl;
 use crate::ctx::WasiCtx;
+use crate::fdentry::Descriptor;
 use crate::host;
 
 use std::ffi::{OsStr, OsString};
-use std::os::windows::prelude::RawHandle;
+use std::os::windows::prelude::{AsRawHandle, RawHandle};
 use std::path::{Component, Path, PathBuf};
 
 /// Normalizes a path to ensure that the target path is located under the directory provided.
@@ -50,12 +51,16 @@ pub fn path_get<P: AsRef<OsStr>>(
     }
 
     let dirfe = wasi_ctx.get_fd_entry(dirfd, needed_base, needed_inheriting)?;
+    let raw_handle = match &dirfe.fd_object.descriptor {
+        Descriptor::File(f) => f.as_raw_handle(),
+        _ => return Err(host::__WASI_EBADF),
+    };
 
     // Stack of directory handles. Index 0 always corresponds with the directory provided
     // to this function. Entering a directory causes a handle to be pushed, while handling
     // ".." entries causes an entry to be popped. Index 0 cannot be popped, as this would imply
     // escaping the base directory.
-    let mut dir_stack = vec![dirfe.fd_object.raw_handle];
+    let mut dir_stack = vec![raw_handle];
 
     // Stack of paths left to process. This is initially the `path` argument to this function, but
     // any symlinks we encounter are processed by pushing them on the stack.

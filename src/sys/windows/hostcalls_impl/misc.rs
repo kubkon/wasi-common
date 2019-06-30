@@ -1,7 +1,7 @@
 #![allow(non_camel_case_types)]
 #![allow(unused_unsafe)]
 #![allow(unused)]
-use super::host_impl;
+use crate::sys::host_impl;
 use crate::memory::*;
 use crate::{host, wasm32};
 

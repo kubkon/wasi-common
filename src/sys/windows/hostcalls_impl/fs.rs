@@ -1,18 +1,16 @@
 #![allow(non_camel_case_types)]
 #![allow(unused)]
-use super::fdentry::{determine_type_rights, FdEntry};
 use super::fs_helpers::*;
-use super::host_impl;
-
+use crate::sys::host_impl;
 use crate::ctx::WasiCtx;
+use crate::fdentry::{Descriptor, FdEntry};
 use crate::host;
+use crate::sys::fdentry_impl::determine_type_rights;
 
+use std::fs::File;
+use std::io;
 use std::ffi::OsStr;
-use std::os::windows::prelude::FromRawHandle;
-
-pub(crate) fn fd_close(fd_entry: FdEntry) -> Result<(), host::__wasi_errno_t> {
-    winx::handle::close(fd_entry.fd_object.raw_handle).map_err(|e| host_impl::errno_from_win(e))
-}
+use std::os::windows::prelude::{AsRawHandle, FromRawHandle};
 
 pub(crate) fn fd_datasync(fd_entry: &FdEntry) -> Result<(), host::__wasi_errno_t> {
     unimplemented!("fd_datasync")
@@ -39,13 +37,19 @@ pub(crate) fn fd_read(
     iovs: &mut [host::__wasi_iovec_t],
 ) -> Result<usize, host::__wasi_errno_t> {
     use winx::io::{readv, IoVecMut};
+    let raw_handle = match &fd_entry.fd_object.descriptor {
+        Descriptor::File(f) => f.as_raw_handle(),
+        Descriptor::Stdin => io::stdin().as_raw_handle(),
+        Descriptor::Stdout => io::stdout().as_raw_handle(),
+        Descriptor::Stderr => io::stderr().as_raw_handle(),
+    };
 
     let mut iovs: Vec<IoVecMut> = iovs
         .iter_mut()
         .map(|iov| unsafe { host_impl::iovec_to_win_mut(iov) })
         .collect();
 
-    readv(fd_entry.fd_object.raw_handle, &mut iovs).map_err(|e| host_impl::errno_from_win(e))
+    readv(raw_handle, &mut iovs).map_err(|e| host_impl::errno_from_win(e))
 }
 
 pub(crate) fn fd_renumber(
@@ -72,9 +76,13 @@ pub(crate) fn fd_fdstat_get(
     fd_entry: &FdEntry,
 ) -> Result<host::__wasi_fdflags_t, host::__wasi_errno_t> {
     use winx::file::AccessRight;
-    match winx::file::get_file_access_rights(fd_entry.fd_object.raw_handle)
-        .map(AccessRight::from_bits_truncate)
-    {
+    let raw_handle = match &fd_entry.fd_object.descriptor {
+        Descriptor::File(f) => f.as_raw_handle(),
+        Descriptor::Stdin => io::stdin().as_raw_handle(),
+        Descriptor::Stdout => io::stdout().as_raw_handle(),
+        Descriptor::Stderr => io::stderr().as_raw_handle(),
+    };
+    match winx::file::get_file_access_rights(raw_handle).map(AccessRight::from_bits_truncate) {
         Ok(rights) => Ok(host_impl::fdflags_from_win(rights)),
         Err(e) => Err(host_impl::errno_from_win(e)),
     }
@@ -101,8 +109,14 @@ pub(crate) fn fd_write(
         .iter()
         .map(|iov| unsafe { host_impl::iovec_to_win(iov) })
         .collect();
+    let raw_handle = match &fd_entry.fd_object.descriptor {
+        Descriptor::File(f) => f.as_raw_handle(),
+        Descriptor::Stdin => io::stdin().as_raw_handle(),
+        Descriptor::Stdout => io::stdout().as_raw_handle(),
+        Descriptor::Stderr => io::stderr().as_raw_handle(),
+    };
 
-    writev(fd_entry.fd_object.raw_handle, &iovs).map_err(|e| host_impl::errno_from_win(e))
+    writev(raw_handle, &iovs).map_err(|e| host_impl::errno_from_win(e))
 }
 
 pub(crate) fn fd_advise(
@@ -203,16 +217,11 @@ pub(crate) fn path_open(
         };
 
     // Determine the type of the new file descriptor and which rights contradict with this type
-    match unsafe { determine_type_rights(new_handle) } {
-        Err(e) => {
-            // if `close` fails, note it but do not override the underlying errno
-            winx::handle::close(new_handle).unwrap_or_else(|e| {
-                dbg!(e);
-            });
-            Err(e)
-        }
+    let file = unsafe { File::from_raw_handle(new_handle) };
+    match determine_type_rights(&file) {
+        Err(e) => Err(e),
         Ok((_ty, max_base, max_inheriting)) => {
-            let mut fe = unsafe { FdEntry::from_raw_handle(new_handle) };
+            let mut fe = FdEntry::from(file);
             fe.rights_base &= max_base;
             fe.rights_inheriting &= max_inheriting;
             Ok(fe)
