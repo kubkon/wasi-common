@@ -197,12 +197,6 @@ pub fn fd_read(
         Err(e) => return return_enc_errno(e),
     };
 
-    if host_nread == 0 {
-        // we hit eof, so remove the fdentry from the context
-        let mut fe = wasi_ctx.fds.remove(&fd).expect("file entry is still there");
-        fe.fd_object.needs_close = false;
-    }
-
     trace!("     | *nread={:?}", host_nread);
 
     let ret = enc_usize_byref(memory, nread, host_nread)
