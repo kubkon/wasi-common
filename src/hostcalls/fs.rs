@@ -1,12 +1,14 @@
 #![allow(non_camel_case_types)]
 use super::return_enc_errno;
 use crate::ctx::WasiCtx;
+use crate::fdentry::Descriptor;
 use crate::memory::*;
 use crate::sys::host_impl;
 use crate::sys::hostcalls_impl;
 use crate::{host, wasm32};
 use log::trace;
 use std::convert::identity;
+use std::io::{self, Read, Write};
 
 use wasi_common_cbindgen::wasi_common_cbindgen;
 
@@ -186,15 +188,21 @@ pub fn fd_read(
         Ok(iovs) => iovs,
         Err(e) => return return_enc_errno(e),
     };
-
-    let fe = match wasi_ctx.get_fd_entry(fd, host::__WASI_RIGHT_FD_READ, 0) {
+    let fe = match wasi_ctx.get_fd_entry_mut(fd, host::__WASI_RIGHT_FD_READ, 0) {
         Ok(fe) => fe,
         Err(e) => return return_enc_errno(e),
     };
+    let mut iovs: Vec<io::IoSliceMut> = iovs.iter_mut().map(host::iovec_to_host_mut).collect();
 
-    let host_nread = match hostcalls_impl::fd_read(fe, &mut iovs) {
+    let maybe_host_nread = match &mut fe.fd_object.descriptor {
+        Descriptor::File(f) => f.read_vectored(&mut iovs),
+        Descriptor::Stdin => io::stdin().lock().read_vectored(&mut iovs),
+        _ => return return_enc_errno(host::__WASI_EBADF),
+    };
+
+    let host_nread = match maybe_host_nread {
         Ok(host_nread) => host_nread,
-        Err(e) => return return_enc_errno(e),
+        Err(_e) => return return_enc_errno(host::__WASI_EIO),
     };
 
     trace!("     | *nread={:?}", host_nread);
@@ -407,7 +415,7 @@ pub fn fd_sync(wasi_ctx: &WasiCtx, fd: wasm32::__wasi_fd_t) -> wasm32::__wasi_er
 
 #[wasi_common_cbindgen]
 pub fn fd_write(
-    wasi_ctx: &WasiCtx,
+    wasi_ctx: &mut WasiCtx,
     memory: &mut [u8],
     fd: wasm32::__wasi_fd_t,
     iovs_ptr: wasm32::uintptr_t,
@@ -427,13 +435,22 @@ pub fn fd_write(
         Ok(iovs) => iovs,
         Err(e) => return return_enc_errno(e),
     };
-    let fe = match wasi_ctx.get_fd_entry(fd, host::__WASI_RIGHT_FD_WRITE, 0) {
+    let fe = match wasi_ctx.get_fd_entry_mut(fd, host::__WASI_RIGHT_FD_WRITE, 0) {
         Ok(fe) => fe,
         Err(e) => return return_enc_errno(e),
     };
-    let host_nwritten = match hostcalls_impl::fd_write(fe, &iovs) {
+    let iovs: Vec<io::IoSlice> = iovs.iter().map(host::iovec_to_host).collect();
+
+    let maybe_host_nwritten = match &mut fe.fd_object.descriptor {
+        Descriptor::File(f) => f.write_vectored(&iovs),
+        Descriptor::Stdin => return return_enc_errno(host::__WASI_EBADF),
+        Descriptor::Stdout => io::stdout().lock().write_vectored(&iovs),
+        Descriptor::Stderr => io::stderr().lock().write_vectored(&iovs),
+    };
+
+    let host_nwritten = match maybe_host_nwritten {
         Ok(host_nwritten) => host_nwritten,
-        Err(e) => return return_enc_errno(e),
+        Err(_e) => return return_enc_errno(host::__WASI_EIO),
     };
 
     trace!("     | *nwritten={:?}", host_nwritten);

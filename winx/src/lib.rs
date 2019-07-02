@@ -23,9 +23,8 @@
 #[macro_use]
 extern crate bitflags;
 
-pub mod file;
 pub mod handle;
-pub mod io;
+pub mod file;
 pub mod winerror;
 
 use winerror::WinError;

@@ -69,27 +69,6 @@ pub(crate) fn fd_pwrite(
         .map_err(|e| host_impl::errno_from_nix(e.as_errno().unwrap()))
 }
 
-pub(crate) fn fd_read(
-    fd_entry: &FdEntry,
-    iovs: &mut [host::__wasi_iovec_t],
-) -> Result<usize, host::__wasi_errno_t> {
-    use nix::sys::uio::{readv, IoVec};
-
-    let mut iovs: Vec<IoVec<&mut [u8]>> = iovs
-        .iter_mut()
-        .map(|iov| unsafe { host_impl::iovec_to_nix_mut(iov) })
-        .collect();
-
-    let rawfd = match &fd_entry.fd_object.descriptor {
-        Descriptor::File(f) => f.as_raw_fd(),
-        Descriptor::Stdin => io::stdin().as_raw_fd(),
-        Descriptor::Stdout => io::stdout().as_raw_fd(),
-        Descriptor::Stderr => io::stderr().as_raw_fd(),
-    };
-
-    readv(rawfd, &mut iovs).map_err(|e| host_impl::errno_from_nix(e.as_errno().unwrap()))
-}
-
 pub(crate) fn fd_renumber(
     wasi_ctx: &mut WasiCtx,
     from: host::__wasi_fd_t,
@@ -218,24 +197,6 @@ pub(crate) fn fd_sync(fd_entry: &FdEntry) -> Result<(), host::__wasi_errno_t> {
         Descriptor::Stderr => io::stderr().as_raw_fd(),
     };
     nix::unistd::fsync(rawfd).map_err(|e| host_impl::errno_from_nix(e.as_errno().unwrap()))
-}
-
-pub(crate) fn fd_write(
-    fd_entry: &FdEntry,
-    iovs: &[host::__wasi_iovec_t],
-) -> Result<usize, host::__wasi_errno_t> {
-    use nix::sys::uio::{writev, IoVec};
-    let iovs: Vec<IoVec<&[u8]>> = iovs
-        .iter()
-        .map(|iov| unsafe { host_impl::iovec_to_nix(iov) })
-        .collect();
-    let rawfd = match &fd_entry.fd_object.descriptor {
-        Descriptor::File(f) => f.as_raw_fd(),
-        Descriptor::Stdin => io::stdin().as_raw_fd(),
-        Descriptor::Stdout => io::stdout().as_raw_fd(),
-        Descriptor::Stderr => io::stderr().as_raw_fd(),
-    };
-    writev(rawfd, &iovs).map_err(|e| host_impl::errno_from_nix(e.as_errno().unwrap()))
 }
 
 pub(crate) fn fd_advise(

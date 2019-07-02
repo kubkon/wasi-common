@@ -89,32 +89,6 @@ pub fn errno_from_nix(errno: nix::errno::Errno) -> host::__wasi_errno_t {
     }
 }
 
-pub unsafe fn ciovec_to_nix<'a>(
-    ciovec: &'a host::__wasi_ciovec_t,
-) -> nix::sys::uio::IoVec<&'a [u8]> {
-    let slice = std::slice::from_raw_parts(ciovec.buf as *const u8, ciovec.buf_len);
-    nix::sys::uio::IoVec::from_slice(slice)
-}
-
-pub unsafe fn ciovec_to_nix_mut<'a>(
-    ciovec: &'a mut host::__wasi_ciovec_t,
-) -> nix::sys::uio::IoVec<&'a mut [u8]> {
-    let slice = std::slice::from_raw_parts_mut(ciovec.buf as *mut u8, ciovec.buf_len);
-    nix::sys::uio::IoVec::from_mut_slice(slice)
-}
-
-pub unsafe fn iovec_to_nix<'a>(iovec: &'a host::__wasi_iovec_t) -> nix::sys::uio::IoVec<&'a [u8]> {
-    let slice = std::slice::from_raw_parts(iovec.buf as *const u8, iovec.buf_len);
-    nix::sys::uio::IoVec::from_slice(slice)
-}
-
-pub unsafe fn iovec_to_nix_mut<'a>(
-    iovec: &'a mut host::__wasi_iovec_t,
-) -> nix::sys::uio::IoVec<&'a mut [u8]> {
-    let slice = std::slice::from_raw_parts_mut(iovec.buf as *mut u8, iovec.buf_len);
-    nix::sys::uio::IoVec::from_mut_slice(slice)
-}
-
 #[cfg(target_os = "linux")]
 pub const O_RSYNC: nix::fcntl::OFlag = nix::fcntl::OFlag::O_RSYNC;
 

@@ -174,15 +174,34 @@ impl WasiCtx {
         rights_inheriting: host::__wasi_rights_t,
     ) -> Result<&FdEntry, host::__wasi_errno_t> {
         if let Some(fe) = self.fds.get(&fd) {
-            // validate rights
-            if !fe.rights_base & rights_base != 0 || !fe.rights_inheriting & rights_inheriting != 0
-            {
-                Err(host::__WASI_ENOTCAPABLE)
-            } else {
-                Ok(fe)
-            }
+            Self::validate_rights(fe, rights_base, rights_inheriting).and(Ok(fe))
         } else {
             Err(host::__WASI_EBADF)
+        }
+    }
+
+    pub fn get_fd_entry_mut(
+        &mut self,
+        fd: host::__wasi_fd_t,
+        rights_base: host::__wasi_rights_t,
+        rights_inheriting: host::__wasi_rights_t,
+    ) -> Result<&mut FdEntry, host::__wasi_errno_t> {
+        if let Some(fe) = self.fds.get_mut(&fd) {
+            Self::validate_rights(fe, rights_base, rights_inheriting).and(Ok(fe))
+        } else {
+            Err(host::__WASI_EBADF)
+        }
+    }
+
+    fn validate_rights(
+        fe: &FdEntry,
+        rights_base: host::__wasi_rights_t,
+        rights_inheriting: host::__wasi_rights_t,
+    ) -> Result<(), host::__wasi_errno_t> {
+        if !fe.rights_base & rights_base != 0 || !fe.rights_inheriting & rights_inheriting != 0 {
+            Err(host::__WASI_ENOTCAPABLE)
+        } else {
+            Ok(())
         }
     }
 

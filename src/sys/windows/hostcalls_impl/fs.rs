@@ -1,15 +1,15 @@
 #![allow(non_camel_case_types)]
 #![allow(unused)]
 use super::fs_helpers::*;
-use crate::sys::host_impl;
 use crate::ctx::WasiCtx;
 use crate::fdentry::{Descriptor, FdEntry};
 use crate::host;
 use crate::sys::fdentry_impl::determine_type_rights;
+use crate::sys::host_impl;
 
+use std::ffi::OsStr;
 use std::fs::File;
 use std::io;
-use std::ffi::OsStr;
 use std::os::windows::prelude::{AsRawHandle, FromRawHandle};
 
 pub(crate) fn fd_datasync(fd_entry: &FdEntry) -> Result<(), host::__wasi_errno_t> {
@@ -30,26 +30,6 @@ pub(crate) fn fd_pwrite(
     offset: host::__wasi_filesize_t,
 ) -> Result<usize, host::__wasi_errno_t> {
     unimplemented!("fd_pwrite")
-}
-
-pub(crate) fn fd_read(
-    fd_entry: &FdEntry,
-    iovs: &mut [host::__wasi_iovec_t],
-) -> Result<usize, host::__wasi_errno_t> {
-    use winx::io::{readv, IoVecMut};
-    let raw_handle = match &fd_entry.fd_object.descriptor {
-        Descriptor::File(f) => f.as_raw_handle(),
-        Descriptor::Stdin => io::stdin().as_raw_handle(),
-        Descriptor::Stdout => io::stdout().as_raw_handle(),
-        Descriptor::Stderr => io::stderr().as_raw_handle(),
-    };
-
-    let mut iovs: Vec<IoVecMut> = iovs
-        .iter_mut()
-        .map(|iov| unsafe { host_impl::iovec_to_win_mut(iov) })
-        .collect();
-
-    readv(raw_handle, &mut iovs).map_err(|e| host_impl::errno_from_win(e))
 }
 
 pub(crate) fn fd_renumber(
@@ -97,26 +77,6 @@ pub(crate) fn fd_fdstat_set_flags(
 
 pub(crate) fn fd_sync(fd_entry: &FdEntry) -> Result<(), host::__wasi_errno_t> {
     unimplemented!("fd_sync")
-}
-
-pub(crate) fn fd_write(
-    fd_entry: &FdEntry,
-    iovs: &[host::__wasi_iovec_t],
-) -> Result<usize, host::__wasi_errno_t> {
-    use winx::io::{writev, IoVec};
-
-    let iovs: Vec<IoVec> = iovs
-        .iter()
-        .map(|iov| unsafe { host_impl::iovec_to_win(iov) })
-        .collect();
-    let raw_handle = match &fd_entry.fd_object.descriptor {
-        Descriptor::File(f) => f.as_raw_handle(),
-        Descriptor::Stdin => io::stdin().as_raw_handle(),
-        Descriptor::Stdout => io::stdout().as_raw_handle(),
-        Descriptor::Stderr => io::stderr().as_raw_handle(),
-    };
-
-    writev(raw_handle, &iovs).map_err(|e| host_impl::errno_from_win(e))
 }
 
 pub(crate) fn fd_advise(
