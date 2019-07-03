@@ -8,7 +8,8 @@ use crate::sys::host_impl;
 
 use nix::libc::{self, c_long};
 use std::ffi::{OsStr, OsString};
-use std::os::unix::prelude::{AsRawFd, OsStrExt, RawFd};
+use std::fs::File;
+use std::os::unix::prelude::{AsRawFd, FromRawFd, OsStrExt};
 use std::path::{Component, Path};
 
 /// Normalizes a path to ensure that the target path is located under the directory provided.
@@ -22,42 +23,12 @@ pub fn path_get<P: AsRef<OsStr>>(
     needed_base: host::__wasi_rights_t,
     needed_inheriting: host::__wasi_rights_t,
     needs_final_component: bool,
-) -> Result<(RawFd, OsString), host::__wasi_errno_t> {
+) -> Result<(File, OsString), host::__wasi_errno_t> {
     use nix::errno::Errno;
     use nix::fcntl::{openat, readlinkat, OFlag};
     use nix::sys::stat::Mode;
 
     const MAX_SYMLINK_EXPANSIONS: usize = 128;
-
-    /// close all the intermediate file descriptors, but make sure not to drop either the original
-    /// dirfd or the one we return (which may be the same dirfd)
-    fn ret_dir_success(dir_stack: &mut Vec<RawFd>) -> RawFd {
-        let ret_dir = dir_stack.pop().expect("there is always a dirfd to return");
-        if let Some(dirfds) = dir_stack.get(1..) {
-            for dirfd in dirfds {
-                nix::unistd::close(*dirfd).unwrap_or_else(|e| {
-                    dbg!(e);
-                });
-            }
-        }
-        ret_dir
-    }
-
-    /// close all file descriptors other than the base directory, and return the errno for
-    /// convenience with `return`
-    fn ret_error(
-        dir_stack: &mut Vec<RawFd>,
-        errno: host::__wasi_errno_t,
-    ) -> Result<(RawFd, OsString), host::__wasi_errno_t> {
-        if let Some(dirfds) = dir_stack.get(1..) {
-            for dirfd in dirfds {
-                nix::unistd::close(*dirfd).unwrap_or_else(|e| {
-                    dbg!(e);
-                });
-            }
-        }
-        Err(errno)
-    }
 
     if path.as_ref().as_bytes().contains(&b'\0') {
         // if contains NUL, return EILSEQ
@@ -65,8 +36,8 @@ pub fn path_get<P: AsRef<OsStr>>(
     }
 
     let dirfe = wasi_ctx.get_fd_entry(dirfd, needed_base, needed_inheriting)?;
-    let rawfd = match &dirfe.fd_object.descriptor {
-        Descriptor::File(f) => f.as_raw_fd(),
+    let dirfd = match &dirfe.fd_object.descriptor {
+        Descriptor::File(f) => f.try_clone().expect("could clone dirfd"),
         _ => return Err(host::__WASI_EBADF),
     };
 
@@ -74,7 +45,7 @@ pub fn path_get<P: AsRef<OsStr>>(
     // to this function. Entering a directory causes a file descriptor to be pushed, while handling
     // ".." entries causes an entry to be popped. Index 0 cannot be popped, as this would imply
     // escaping the base directory.
-    let mut dir_stack = vec![rawfd];
+    let mut dir_stack = vec![dirfd];
 
     // Stack of paths left to process. This is initially the `path` argument to this function, but
     // any symlinks we encounter are processed by pushing them on the stack.
@@ -96,7 +67,7 @@ pub fn path_get<P: AsRef<OsStr>>(
                 let ends_with_slash = cur_path.as_bytes().ends_with(b"/");
                 let mut components = Path::new(&cur_path).components();
                 let head = match components.next() {
-                    None => return ret_error(&mut dir_stack, host::__WASI_ENOENT),
+                    None => return Err(host::__WASI_ENOENT),
                     Some(p) => p,
                 };
                 let tail = components.as_path();
@@ -112,7 +83,7 @@ pub fn path_get<P: AsRef<OsStr>>(
                 match head {
                     Component::Prefix(_) | Component::RootDir => {
                         // path is absolute!
-                        return ret_error(&mut dir_stack, host::__WASI_ENOTCAPABLE);
+                        return Err(host::__WASI_ENOTCAPABLE);
                     }
                     Component::CurDir => {
                         // "." so skip
@@ -120,15 +91,11 @@ pub fn path_get<P: AsRef<OsStr>>(
                     }
                     Component::ParentDir => {
                         // ".." so pop a dir
-                        let dirfd = dir_stack.pop().expect("dir_stack is never empty");
+                        let _ = dir_stack.pop().expect("dir_stack is never empty");
 
                         // we're not allowed to pop past the original directory
                         if dir_stack.is_empty() {
-                            return ret_error(&mut dir_stack, host::__WASI_ENOTCAPABLE);
-                        } else {
-                            nix::unistd::close(dirfd).unwrap_or_else(|e| {
-                                dbg!(e);
-                            });
+                            return Err(host::__WASI_ENOTCAPABLE);
                         }
                     }
                     Component::Normal(head) => {
@@ -140,13 +107,13 @@ pub fn path_get<P: AsRef<OsStr>>(
 
                         if !path_stack.is_empty() || (ends_with_slash && !needs_final_component) {
                             match openat(
-                                *dir_stack.last().expect("dir_stack is never empty"),
+                                dir_stack.last().expect("dir_stack is never empty").as_raw_fd(),
                                 head.as_os_str(),
                                 OFlag::O_RDONLY | OFlag::O_DIRECTORY | OFlag::O_NOFOLLOW,
                                 Mode::empty(),
                             ) {
                                 Ok(new_dir) => {
-                                    dir_stack.push(new_dir);
+                                    dir_stack.push(unsafe { File::from_raw_fd(new_dir) });
                                     continue;
                                 }
                                 Err(e)
@@ -158,14 +125,14 @@ pub fn path_get<P: AsRef<OsStr>>(
                                 {
                                     // attempt symlink expansion
                                     match readlinkat(
-                                        *dir_stack.last().expect("dir_stack is never empty"),
+                                        dir_stack.last().expect("dir_stack is never empty").as_raw_fd(),
                                         head.as_os_str(),
                                         readlink_buf.as_mut_slice(),
                                     ) {
                                         Ok(link_path) => {
                                             symlink_expansions += 1;
                                             if symlink_expansions > MAX_SYMLINK_EXPANSIONS {
-                                                return ret_error(&mut dir_stack, host::__WASI_ELOOP);
+                                                return Err(host::__WASI_ELOOP);
                                             }
 
                                             let mut link_path = OsString::from(link_path);
@@ -177,16 +144,14 @@ pub fn path_get<P: AsRef<OsStr>>(
                                             continue;
                                         }
                                         Err(e) => {
-                                            return ret_error(
-                                                &mut dir_stack,
+                                            return Err(
                                                 host_impl::errno_from_nix(e.as_errno().unwrap()),
                                             );
                                         }
                                     }
                                 }
                                 Err(e) => {
-                                    return ret_error(
-                                        &mut dir_stack,
+                                    return Err(
                                         host_impl::errno_from_nix(e.as_errno().unwrap()),
                                     );
                                 }
@@ -197,14 +162,17 @@ pub fn path_get<P: AsRef<OsStr>>(
                             // if there's a trailing slash, or if `LOOKUP_SYMLINK_FOLLOW` is set, attempt
                             // symlink expansion
                             match readlinkat(
-                                *dir_stack.last().expect("dir_stack is never empty"),
+                                dir_stack
+                                    .last()
+                                    .expect("dir_stack is never empty")
+                                    .as_raw_fd(),
                                 head.as_os_str(),
                                 readlink_buf.as_mut_slice(),
                             ) {
                                 Ok(link_path) => {
                                     symlink_expansions += 1;
                                     if symlink_expansions > MAX_SYMLINK_EXPANSIONS {
-                                        return ret_error(&mut dir_stack, host::__WASI_ELOOP);
+                                        return Err(host::__WASI_ELOOP);
                                     }
                                     let mut link_path = OsString::from(link_path);
                                     if head.as_bytes().ends_with(b"/") {
@@ -218,17 +186,17 @@ pub fn path_get<P: AsRef<OsStr>>(
                                     let errno = e.as_errno().unwrap();
                                     if errno != Errno::EINVAL && errno != Errno::ENOENT {
                                         // only return an error if this path is not actually a symlink
-                                        return ret_error(
-                                            &mut dir_stack,
-                                            host_impl::errno_from_nix(errno),
-                                        );
+                                        return Err(host_impl::errno_from_nix(errno));
                                     }
                                 }
                             }
                         }
 
                         // not a symlink, so we're done;
-                        return Ok((ret_dir_success(&mut dir_stack), head));
+                        return Ok((
+                            dir_stack.pop().expect("there is always a dirfd to return"),
+                            head,
+                        ));
                     }
                 }
             }
@@ -236,7 +204,7 @@ pub fn path_get<P: AsRef<OsStr>>(
                 // no further components to process. means we've hit a case like "." or "a/..", or if the
                 // input path has trailing slashes and `needs_final_component` is not set
                 return Ok((
-                    ret_dir_success(&mut dir_stack),
+                    dir_stack.pop().expect("there is always a dirfd to return"),
                     OsStr::new(".").to_os_string(),
                 ));
             }

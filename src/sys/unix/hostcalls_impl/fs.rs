@@ -316,7 +316,7 @@ pub(crate) fn path_create_directory(
         Err(_) => return Err(host::__WASI_EINVAL),
     };
     // nix doesn't expose mkdirat() yet
-    match unsafe { mkdirat(dir, path_cstr.as_ptr(), 0o777) } {
+    match unsafe { mkdirat(dir.as_raw_fd(), path_cstr.as_ptr(), 0o777) } {
         0 => Ok(()),
         _ => Err(host_impl::errno_from_nix(nix::errno::Errno::last())),
     }
@@ -353,9 +353,9 @@ pub(crate) fn path_link(
     let atflags = libc::AT_SYMLINK_FOLLOW;
     let res = unsafe {
         linkat(
-            old_dir,
+            old_dir.as_raw_fd(),
             old_path_cstr.as_ptr(),
-            new_dir,
+            new_dir.as_raw_fd(),
             new_path_cstr.as_ptr(),
             atflags,
         )
@@ -430,7 +430,7 @@ pub(crate) fn path_open(
     // umask is, but don't set the executable flag, because it isn't yet
     // meaningful for WASI programs to create executable files.
     let new_fd = match openat(
-        dir,
+        dir.as_raw_fd(),
         path.as_os_str(),
         nix_all_oflags,
         Mode::from_bits_truncate(0o666),
@@ -440,7 +440,11 @@ pub(crate) fn path_open(
             match e.as_errno() {
                 // Linux returns ENXIO instead of EOPNOTSUPP when opening a socket
                 Some(Errno::ENXIO) => {
-                    if let Ok(stat) = fstatat(dir, path.as_os_str(), AtFlags::AT_SYMLINK_NOFOLLOW) {
+                    if let Ok(stat) = fstatat(
+                        dir.as_raw_fd(),
+                        path.as_os_str(),
+                        AtFlags::AT_SYMLINK_NOFOLLOW,
+                    ) {
                         if SFlag::from_bits_truncate(stat.st_mode).contains(SFlag::S_IFSOCK) {
                             return Err(host::__WASI_ENOTSUP);
                         } else {
@@ -455,7 +459,11 @@ pub(crate) fn path_open(
                 Some(Errno::ENOTDIR)
                     if !(nix_all_oflags & (OFlag::O_NOFOLLOW | OFlag::O_DIRECTORY)).is_empty() =>
                 {
-                    if let Ok(stat) = fstatat(dir, path.as_os_str(), AtFlags::AT_SYMLINK_NOFOLLOW) {
+                    if let Ok(stat) = fstatat(
+                        dir.as_raw_fd(),
+                        path.as_os_str(),
+                        AtFlags::AT_SYMLINK_NOFOLLOW,
+                    ) {
                         if SFlag::from_bits_truncate(stat.st_mode).contains(SFlag::S_IFLNK) {
                             return Err(host::__WASI_ELOOP);
                         }
@@ -577,7 +585,7 @@ pub(crate) fn path_readlink(
     let buf_len = buf.len();
     let len = unsafe {
         libc::readlinkat(
-            dir,
+            dir.as_raw_fd(),
             path_cstr.as_ptr() as *const libc::c_char,
             if buf_len == 0 {
                 fakebuf.as_mut_ptr()
@@ -627,9 +635,9 @@ pub(crate) fn path_rename(
     };
     let res = unsafe {
         renameat(
-            old_dir,
+            old_dir.as_raw_fd(),
             old_path_cstr.as_ptr(),
-            new_dir,
+            new_dir.as_raw_fd(),
             new_path_cstr.as_ptr(),
         )
     };
@@ -751,7 +759,7 @@ pub(crate) fn path_filestat_get(
         _ => AtFlags::AT_SYMLINK_NOFOLLOW,
     };
 
-    match fstatat(dir, path.as_os_str(), atflags) {
+    match fstatat(dir.as_raw_fd(), path.as_os_str(), atflags) {
         Err(e) => Err(host_impl::errno_from_nix(e.as_errno().unwrap())),
         Ok(filestat) => Ok(host_impl::filestat_from_nix(filestat)),
     }
@@ -812,7 +820,8 @@ pub(crate) fn path_filestat_set_times(
         Ok(path_cstr) => path_cstr,
         Err(_) => return Err(host::__WASI_EINVAL),
     };
-    let res = unsafe { libc::utimensat(dir, path_cstr.as_ptr(), times.as_ptr(), atflags) };
+    let res =
+        unsafe { libc::utimensat(dir.as_raw_fd(), path_cstr.as_ptr(), times.as_ptr(), atflags) };
     if res != 0 {
         Err(host_impl::errno_from_nix(nix::errno::Errno::last()))
     } else {
@@ -841,7 +850,13 @@ pub(crate) fn path_symlink(
         Ok(new_path_cstr) => new_path_cstr,
         Err(_) => return Err(host::__WASI_EINVAL),
     };
-    let res = unsafe { symlinkat(old_path_cstr.as_ptr(), dir, new_path_cstr.as_ptr()) };
+    let res = unsafe {
+        symlinkat(
+            old_path_cstr.as_ptr(),
+            dir.as_raw_fd(),
+            new_path_cstr.as_ptr(),
+        )
+    };
     if res != 0 {
         Err(host_impl::errno_from_nix(nix::errno::Errno::last()))
     } else {
@@ -867,7 +882,7 @@ pub(crate) fn path_unlink_file(
         Err(_) => return Err(host::__WASI_EINVAL),
     };
     // nix doesn't expose unlinkat() yet
-    match unsafe { unlinkat(dir, path_cstr.as_ptr(), 0) } {
+    match unsafe { unlinkat(dir.as_raw_fd(), path_cstr.as_ptr(), 0) } {
         0 => Ok(()),
         _ => {
             let mut e = errno::Errno::last();
@@ -885,7 +900,11 @@ pub(crate) fn path_unlink_file(
                 use nix::sys::stat::{fstatat, SFlag};
 
                 if e == errno::Errno::EPERM {
-                    if let Ok(stat) = fstatat(dir, path.as_os_str(), AtFlags::AT_SYMLINK_NOFOLLOW) {
+                    if let Ok(stat) = fstatat(
+                        dir.as_raw_fd(),
+                        path.as_os_str(),
+                        AtFlags::AT_SYMLINK_NOFOLLOW,
+                    ) {
                         if SFlag::from_bits_truncate(stat.st_mode).contains(SFlag::S_IFDIR) {
                             e = errno::Errno::EISDIR;
                         }
@@ -918,7 +937,7 @@ pub(crate) fn path_remove_directory(
         Err(_) => return Err(host::__WASI_EINVAL),
     };
     // nix doesn't expose unlinkat() yet
-    match unsafe { unlinkat(dir, path_cstr.as_ptr(), AT_REMOVEDIR) } {
+    match unsafe { unlinkat(dir.as_raw_fd(), path_cstr.as_ptr(), AT_REMOVEDIR) } {
         0 => Ok(()),
         _ => Err(host_impl::errno_from_nix(errno::Errno::last())),
     }
