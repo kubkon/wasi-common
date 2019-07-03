@@ -131,6 +131,7 @@ cfg_if::cfg_if! {
             if testsuite == "misc_testsuite" {
                 match name {
                     "big_random_buf" => false,
+                    "sched_yield" => false,
                     _ => true,
                 }
             } else {

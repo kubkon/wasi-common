@@ -146,11 +146,6 @@ pub(crate) fn poll_oneoff(
     Ok(events_count)
 }
 
-pub(crate) fn sched_yield() -> Result<(), host::__wasi_errno_t> {
-    unsafe { libc::sched_yield() };
-    Ok(())
-}
-
 // define the `fionread()` function, equivalent to `ioctl(fd, FIONREAD, *bytes)`
 nix::ioctl_read_bad!(fionread, nix::libc::FIONREAD, c_int);
 

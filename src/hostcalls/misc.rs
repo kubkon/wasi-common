@@ -314,10 +314,7 @@ pub fn poll_oneoff(
 pub fn sched_yield() -> wasm32::__wasi_errno_t {
     trace!("sched_yield()");
 
-    let ret = match hostcalls_impl::sched_yield() {
-        Ok(()) => host::__WASI_ESUCCESS,
-        Err(e) => e,
-    };
+    std::thread::yield_now();
 
-    return_enc_errno(ret)
+    return_enc_errno(host::__WASI_ESUCCESS)
 }
