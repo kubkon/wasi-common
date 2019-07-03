@@ -3,8 +3,7 @@ use super::return_enc_errno;
 use crate::ctx::WasiCtx;
 use crate::fdentry::Descriptor;
 use crate::memory::*;
-use crate::sys::host_impl;
-use crate::sys::hostcalls_impl;
+use crate::sys::{errno_from_host, host_impl, hostcalls_impl};
 use crate::{host, wasm32};
 use log::trace;
 use std::convert::identity;
@@ -202,7 +201,10 @@ pub fn fd_read(
 
     let host_nread = match maybe_host_nread {
         Ok(host_nread) => host_nread,
-        Err(_e) => return return_enc_errno(host::__WASI_EIO),
+        Err(err) => {
+            let err = err.raw_os_error().map_or(host::__WASI_EIO, errno_from_host);
+            return return_enc_errno(err);
+        }
     };
 
     trace!("     | *nread={:?}", host_nread);
@@ -450,7 +452,10 @@ pub fn fd_write(
 
     let host_nwritten = match maybe_host_nwritten {
         Ok(host_nwritten) => host_nwritten,
-        Err(_e) => return return_enc_errno(host::__WASI_EIO),
+        Err(err) => {
+            let err = err.raw_os_error().map_or(host::__WASI_EIO, errno_from_host);
+            return return_enc_errno(err);
+        }
     };
 
     trace!("     | *nwritten={:?}", host_nwritten);
