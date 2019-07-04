@@ -4,33 +4,33 @@
 use crate::ctx::WasiCtx;
 use crate::fdentry::Descriptor;
 use crate::host;
-use crate::sys::host_impl;
+use crate::sys::host_impl::{self, RawString};
 
 use nix::libc::{self, c_long};
-use std::ffi::{OsStr, OsString};
+use std::ffi::OsStr;
 use std::fs::File;
-use std::os::unix::prelude::{AsRawFd, FromRawFd, OsStrExt};
+use std::os::unix::prelude::{AsRawFd, FromRawFd};
 use std::path::{Component, Path};
 
 /// Normalizes a path to ensure that the target path is located under the directory provided.
 ///
 /// This is a workaround for not having Capsicum support in the OS.
-pub fn path_get<P: AsRef<OsStr>>(
+pub fn path_get(
     wasi_ctx: &WasiCtx,
     dirfd: host::__wasi_fd_t,
     dirflags: host::__wasi_lookupflags_t,
-    path: P,
+    path: &RawString,
     needed_base: host::__wasi_rights_t,
     needed_inheriting: host::__wasi_rights_t,
     needs_final_component: bool,
-) -> Result<(File, OsString), host::__wasi_errno_t> {
+) -> Result<(File, RawString), host::__wasi_errno_t> {
     use nix::errno::Errno;
     use nix::fcntl::{openat, readlinkat, OFlag};
     use nix::sys::stat::Mode;
 
     const MAX_SYMLINK_EXPANSIONS: usize = 128;
 
-    if path.as_ref().as_bytes().contains(&b'\0') {
+    if path.contains(&b'\0') {
         // if contains NUL, return EILSEQ
         return Err(host::__WASI_EILSEQ);
     }
@@ -49,7 +49,7 @@ pub fn path_get<P: AsRef<OsStr>>(
 
     // Stack of paths left to process. This is initially the `path` argument to this function, but
     // any symlinks we encounter are processed by pushing them on the stack.
-    let mut path_stack = vec![path.as_ref().to_owned()];
+    let mut path_stack = vec![path.clone()];
 
     // Track the number of symlinks we've expanded, so we can return `ELOOP` after too many.
     let mut symlink_expansions = 0;
@@ -64,7 +64,7 @@ pub fn path_get<P: AsRef<OsStr>>(
             Some(cur_path) => {
                 // eprintln!("cur_path = {:?}", cur_path);
 
-                let ends_with_slash = cur_path.as_bytes().ends_with(b"/");
+                let ends_with_slash = cur_path.ends_with(b"/");
                 let mut components = Path::new(&cur_path).components();
                 let head = match components.next() {
                     None => return Err(host::__WASI_ENOENT),
@@ -73,7 +73,7 @@ pub fn path_get<P: AsRef<OsStr>>(
                 let tail = components.as_path();
 
                 if tail.components().next().is_some() {
-                    let mut tail = tail.as_os_str().to_owned();
+                    let mut tail = RawString::from(tail.as_os_str());
                     if ends_with_slash {
                         tail.push("/");
                     }
@@ -99,7 +99,7 @@ pub fn path_get<P: AsRef<OsStr>>(
                         }
                     }
                     Component::Normal(head) => {
-                        let mut head = OsString::from(head);
+                        let mut head = RawString::from(head);
                         if ends_with_slash {
                             // preserve trailing slash
                             head.push("/");
@@ -108,7 +108,7 @@ pub fn path_get<P: AsRef<OsStr>>(
                         if !path_stack.is_empty() || (ends_with_slash && !needs_final_component) {
                             match openat(
                                 dir_stack.last().expect("dir_stack is never empty").as_raw_fd(),
-                                head.as_os_str(),
+                                head.as_ref(),
                                 OFlag::O_RDONLY | OFlag::O_DIRECTORY | OFlag::O_NOFOLLOW,
                                 Mode::empty(),
                             ) {
@@ -126,7 +126,7 @@ pub fn path_get<P: AsRef<OsStr>>(
                                     // attempt symlink expansion
                                     match readlinkat(
                                         dir_stack.last().expect("dir_stack is never empty").as_raw_fd(),
-                                        head.as_os_str(),
+                                        head.as_ref(),
                                         readlink_buf.as_mut_slice(),
                                     ) {
                                         Ok(link_path) => {
@@ -135,8 +135,8 @@ pub fn path_get<P: AsRef<OsStr>>(
                                                 return Err(host::__WASI_ELOOP);
                                             }
 
-                                            let mut link_path = OsString::from(link_path);
-                                            if head.as_bytes().ends_with(b"/") {
+                                            let mut link_path = RawString::from(link_path);
+                                            if head.ends_with(b"/") {
                                                 link_path.push("/");
                                             }
 
@@ -166,7 +166,7 @@ pub fn path_get<P: AsRef<OsStr>>(
                                     .last()
                                     .expect("dir_stack is never empty")
                                     .as_raw_fd(),
-                                head.as_os_str(),
+                                head.as_ref(),
                                 readlink_buf.as_mut_slice(),
                             ) {
                                 Ok(link_path) => {
@@ -174,8 +174,8 @@ pub fn path_get<P: AsRef<OsStr>>(
                                     if symlink_expansions > MAX_SYMLINK_EXPANSIONS {
                                         return Err(host::__WASI_ELOOP);
                                     }
-                                    let mut link_path = OsString::from(link_path);
-                                    if head.as_bytes().ends_with(b"/") {
+                                    let mut link_path = RawString::from(link_path);
+                                    if head.ends_with(b"/") {
                                         link_path.push("/");
                                     }
 
@@ -205,7 +205,7 @@ pub fn path_get<P: AsRef<OsStr>>(
                 // input path has trailing slashes and `needs_final_component` is not set
                 return Ok((
                     dir_stack.pop().expect("there is always a dirfd to return"),
-                    OsStr::new(".").to_os_string(),
+                    RawString::from(OsStr::new(".")),
                 ));
             }
         }

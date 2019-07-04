@@ -250,10 +250,49 @@ pub fn dirent_from_host(
     Ok(entry)
 }
 
-pub fn path_from_raw(raw_path: &[u8]) -> OsString {
-    OsStr::from_bytes(raw_path).to_owned()
+#[derive(Debug, Clone)]
+pub struct RawString {
+    s: OsString,
 }
 
-pub fn path_to_raw<P: AsRef<OsStr>>(path: P) -> Vec<u8> {
-    path.as_ref().as_bytes().to_vec()
+impl RawString {
+    pub fn new(s: OsString) -> Self {
+        Self { s }
+    }
+
+    pub fn from_bytes(slice: &[u8]) -> Self {
+        Self {
+            s: OsStr::from_bytes(slice).to_owned(),
+        }
+    }
+
+    pub fn to_bytes(&self) -> Vec<u8> {
+        self.s.as_bytes().to_vec()
+    }
+
+    pub fn contains(&self, c: &u8) -> bool {
+        self.s.as_bytes().contains(c)
+    }
+
+    pub fn ends_with(&self, c: &[u8]) -> bool {
+        self.s.as_bytes().ends_with(c)
+    }
+
+    pub fn push<T: AsRef<OsStr>>(&mut self, s: T) {
+        self.s.push(s)
+    }
+}
+
+impl AsRef<OsStr> for RawString {
+    fn as_ref(&self) -> &OsStr {
+        &self.s
+    }
+}
+
+impl From<&OsStr> for RawString {
+    fn from(os_str: &OsStr) -> Self {
+        Self {
+            s: os_str.to_owned(),
+        }
+    }
 }

@@ -107,16 +107,57 @@ pub fn win_from_oflags(
     (win_disp, win_flags_attrs)
 }
 
-pub fn path_from_raw(raw_path: &[u8]) -> OsString {
-    OsString::from_wide(&raw_path.iter().map(|&x| x as u16).collect::<Vec<u16>>())
+#[derive(Debug, Clone)]
+pub struct RawString {
+    s: OsString,
 }
 
-pub fn path_to_raw<P: AsRef<OsStr>>(path: P) -> Vec<u8> {
-    path.as_ref()
-        .encode_wide()
-        .map(u16::to_le_bytes)
-        .fold(Vec::new(), |mut acc, bytes| {
-            acc.extend_from_slice(&bytes);
-            acc
-        })
+impl RawString {
+    pub fn new(s: OsString) -> Self {
+        Self { s }
+    }
+
+    pub fn from_bytes(slice: &[u8]) -> Self {
+        Self {
+            s: OsString::from_wide(slice.iter().map(|&x| x as u16).collect::<Vec<u16>>()),
+        }
+    }
+
+    pub fn to_bytes(&self) -> Vec<u8> {
+        self.s
+            .encode_wide()
+            .map(u16::to_le_bytes)
+            .fold(Vec::new(), |mut acc, bytes| {
+                acc.extend_from_slice(&bytes);
+                acc
+            })
+    }
+
+    pub fn contains(&self, c: &u8) -> bool {
+        let c = u16::from_le_bytes([*c, 0u8]);
+        self.s.encode_wide().find(|&&x| x == c).is_some()
+    }
+
+    pub fn ends_with(&self, cs: &[u8]) -> bool {
+        let cs = cs.iter().map(|c| u16::from_le_bytes([*c, 0u8])).rev();
+        self.s.encode_wide().rev().zip(cs).all(|&(l, r)| l == r)
+    }
+
+    pub fn push<T: AsRef<OsStr>>(&mut self, s: T) {
+        self.s.push(s)
+    }
+}
+
+impl AsRef<OsStr> for host_impl::RawString {
+    fn as_ref(&self) -> &OsStr {
+        &self.s
+    }
+}
+
+impl From<&OsStr> for RawString {
+    fn from(os_str: &OsStr) -> Self {
+        Self {
+            s: os_str.to_owned(),
+        }
+    }
 }
