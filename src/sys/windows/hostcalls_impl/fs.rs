@@ -5,9 +5,8 @@ use crate::ctx::WasiCtx;
 use crate::fdentry::{Descriptor, FdEntry};
 use crate::host;
 use crate::sys::fdentry_impl::determine_type_rights;
-use crate::sys::host_impl;
+use crate::sys::host_impl::{self, RawString};
 
-use std::ffi::OsStr;
 use std::fs::File;
 use std::io;
 use std::os::windows::prelude::{AsRawHandle, FromRawHandle};
@@ -99,7 +98,7 @@ pub(crate) fn fd_allocate(
 pub(crate) fn path_create_directory(
     ctx: &WasiCtx,
     dirfd: host::__wasi_fd_t,
-    path: &OsStr,
+    path: &RawString,
 ) -> Result<(), host::__wasi_errno_t> {
     unimplemented!("path_create_directory")
 }
@@ -108,8 +107,8 @@ pub(crate) fn path_link(
     ctx: &WasiCtx,
     old_dirfd: host::__wasi_fd_t,
     new_dirfd: host::__wasi_fd_t,
-    old_path: &OsStr,
-    new_path: &OsStr,
+    old_path: &RawString,
+    new_path: &RawString,
     source_rights: host::__wasi_rights_t,
     target_rights: host::__wasi_rights_t,
 ) -> Result<(), host::__wasi_errno_t> {
@@ -120,7 +119,7 @@ pub(crate) fn path_open(
     ctx: &WasiCtx,
     dirfd: host::__wasi_fd_t,
     dirflags: host::__wasi_lookupflags_t,
-    path: &OsStr,
+    path: &RawString,
     oflags: host::__wasi_oflags_t,
     read: bool,
     write: bool,
@@ -170,11 +169,16 @@ pub(crate) fn path_open(
         Err(e) => return Err(e),
     };
 
-    let new_handle =
-        match winx::file::openat(dir, &path, win_rights, win_create_disp, win_flags_attrs) {
-            Ok(handle) => handle,
-            Err(e) => return Err(host_impl::errno_from_win(e)),
-        };
+    let new_handle = match winx::file::openat(
+        dir.as_raw_handle(),
+        &path,
+        win_rights,
+        win_create_disp,
+        win_flags_attrs,
+    ) {
+        Ok(handle) => handle,
+        Err(e) => return Err(host_impl::errno_from_win(e)),
+    };
 
     // Determine the type of the new file descriptor and which rights contradict with this type
     let file = unsafe { File::from_raw_handle(new_handle) };
@@ -200,7 +204,7 @@ pub(crate) fn fd_readdir(
 pub(crate) fn path_readlink(
     wasi_ctx: &WasiCtx,
     dirfd: host::__wasi_fd_t,
-    path: &OsStr,
+    path: &RawString,
     rights: host::__wasi_rights_t,
     buf: &mut [u8],
 ) -> Result<usize, host::__wasi_errno_t> {
@@ -210,10 +214,10 @@ pub(crate) fn path_readlink(
 pub(crate) fn path_rename(
     wasi_ctx: &WasiCtx,
     old_dirfd: host::__wasi_fd_t,
-    old_path: &OsStr,
+    old_path: &RawString,
     old_rights: host::__wasi_rights_t,
     new_dirfd: host::__wasi_fd_t,
-    new_path: &OsStr,
+    new_path: &RawString,
     new_rights: host::__wasi_rights_t,
 ) -> Result<(), host::__wasi_errno_t> {
     unimplemented!("path_rename")
@@ -245,7 +249,7 @@ pub(crate) fn path_filestat_get(
     wasi_ctx: &WasiCtx,
     dirfd: host::__wasi_fd_t,
     dirflags: host::__wasi_lookupflags_t,
-    path: &OsStr,
+    path: &RawString,
 ) -> Result<host::__wasi_filestat_t, host::__wasi_errno_t> {
     unimplemented!("path_filestat_get")
 }
@@ -254,7 +258,7 @@ pub(crate) fn path_filestat_set_times(
     wasi_ctx: &WasiCtx,
     dirfd: host::__wasi_fd_t,
     dirflags: host::__wasi_lookupflags_t,
-    path: &OsStr,
+    path: &RawString,
     rights: host::__wasi_rights_t,
     st_atim: host::__wasi_timestamp_t,
     mut st_mtim: host::__wasi_timestamp_t,
@@ -267,8 +271,8 @@ pub(crate) fn path_symlink(
     wasi_ctx: &WasiCtx,
     dirfd: host::__wasi_fd_t,
     rights: host::__wasi_rights_t,
-    old_path: &OsStr,
-    new_path: &OsStr,
+    old_path: &RawString,
+    new_path: &RawString,
 ) -> Result<(), host::__wasi_errno_t> {
     unimplemented!("path_symlink")
 }
@@ -276,7 +280,7 @@ pub(crate) fn path_symlink(
 pub(crate) fn path_unlink_file(
     wasi_ctx: &WasiCtx,
     dirfd: host::__wasi_fd_t,
-    path: &OsStr,
+    path: &RawString,
     rights: host::__wasi_rights_t,
 ) -> Result<(), host::__wasi_errno_t> {
     unimplemented!("path_unlink_file")
@@ -285,7 +289,7 @@ pub(crate) fn path_unlink_file(
 pub(crate) fn path_remove_directory(
     wasi_ctx: &WasiCtx,
     dirfd: host::__wasi_fd_t,
-    path: &OsStr,
+    path: &RawString,
     rights: host::__wasi_rights_t,
 ) -> Result<(), host::__wasi_errno_t> {
     unimplemented!("path_remove_directory")

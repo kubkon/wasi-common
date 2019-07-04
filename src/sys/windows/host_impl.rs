@@ -119,7 +119,7 @@ impl RawString {
 
     pub fn from_bytes(slice: &[u8]) -> Self {
         Self {
-            s: OsString::from_wide(slice.iter().map(|&x| x as u16).collect::<Vec<u16>>()),
+            s: OsString::from_wide(&slice.iter().map(|&x| x as u16).collect::<Vec<u16>>()),
         }
     }
 
@@ -135,12 +135,13 @@ impl RawString {
 
     pub fn contains(&self, c: &u8) -> bool {
         let c = u16::from_le_bytes([*c, 0u8]);
-        self.s.encode_wide().find(|&&x| x == c).is_some()
+        self.s.encode_wide().find(|&x| x == c).is_some()
     }
 
     pub fn ends_with(&self, cs: &[u8]) -> bool {
         let cs = cs.iter().map(|c| u16::from_le_bytes([*c, 0u8])).rev();
-        self.s.encode_wide().rev().zip(cs).all(|&(l, r)| l == r)
+        let ss: Vec<u16> = self.s.encode_wide().collect();
+        ss.into_iter().rev().zip(cs).all(|(l, r)| l == r)
     }
 
     pub fn push<T: AsRef<OsStr>>(&mut self, s: T) {
@@ -148,7 +149,7 @@ impl RawString {
     }
 }
 
-impl AsRef<OsStr> for host_impl::RawString {
+impl AsRef<OsStr> for RawString {
     fn as_ref(&self) -> &OsStr {
         &self.s
     }
