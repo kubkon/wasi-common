@@ -24,7 +24,6 @@
 extern crate bitflags;
 
 pub mod file;
-pub mod handle;
 pub mod winerror;
 
 use winerror::WinError;
