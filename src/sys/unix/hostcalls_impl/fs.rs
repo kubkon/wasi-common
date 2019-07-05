@@ -1,7 +1,7 @@
 #![allow(non_camel_case_types)]
 #![allow(unused_unsafe)]
 use super::fs_helpers::*;
-use crate::fdentry::{Descriptor, FdEntry};
+use crate::fdentry::FdEntry;
 use crate::sys::fdentry_impl::determine_type_rights;
 use crate::sys::host_impl::{self, RawString};
 
@@ -10,17 +10,10 @@ use crate::{host, wasm32};
 
 use nix::libc::{self, c_long, c_void, off_t};
 use std::fs::File;
-use std::io;
 use std::os::unix::prelude::{AsRawFd, FromRawFd};
 
 pub(crate) fn fd_datasync(fd_entry: &FdEntry) -> Result<(), host::__wasi_errno_t> {
-    let rawfd = match &fd_entry.fd_object.descriptor {
-        Descriptor::File(f) => f.as_raw_fd(),
-        Descriptor::Stdin => io::stdin().as_raw_fd(),
-        Descriptor::Stdout => io::stdout().as_raw_fd(),
-        Descriptor::Stderr => io::stderr().as_raw_fd(),
-    };
-
+    let rawfd = fd_entry.fd_object.descriptor.as_raw_fd();
     let res;
 
     #[cfg(target_os = "linux")]
@@ -41,13 +34,7 @@ pub(crate) fn fd_pread(
     buf: &mut [u8],
     offset: host::__wasi_filesize_t,
 ) -> Result<usize, host::__wasi_errno_t> {
-    let rawfd = match &fd_entry.fd_object.descriptor {
-        Descriptor::File(f) => f.as_raw_fd(),
-        Descriptor::Stdin => io::stdin().as_raw_fd(),
-        Descriptor::Stdout => io::stdout().as_raw_fd(),
-        Descriptor::Stderr => io::stderr().as_raw_fd(),
-    };
-
+    let rawfd = fd_entry.fd_object.descriptor.as_raw_fd();
     nix::sys::uio::pread(rawfd, buf, offset as off_t)
         .map_err(|e| host_impl::errno_from_nix(e.as_errno().unwrap()))
 }
@@ -57,13 +44,7 @@ pub(crate) fn fd_pwrite(
     buf: &[u8],
     offset: host::__wasi_filesize_t,
 ) -> Result<usize, host::__wasi_errno_t> {
-    let rawfd = match &fd_entry.fd_object.descriptor {
-        Descriptor::File(f) => f.as_raw_fd(),
-        Descriptor::Stdin => io::stdin().as_raw_fd(),
-        Descriptor::Stdout => io::stdout().as_raw_fd(),
-        Descriptor::Stderr => io::stderr().as_raw_fd(),
-    };
-
+    let rawfd = fd_entry.fd_object.descriptor.as_raw_fd();
     nix::sys::uio::pwrite(rawfd, buf, offset as off_t)
         .map_err(|e| host_impl::errno_from_nix(e.as_errno().unwrap()))
 }
@@ -89,19 +70,8 @@ pub(crate) fn fd_renumber(
         return Err(host::__WASI_ENOTSUP);
     }
 
-    let rawfd_from = match &fe_from.fd_object.descriptor {
-        Descriptor::File(f) => f.as_raw_fd(),
-        Descriptor::Stdin => io::stdin().as_raw_fd(),
-        Descriptor::Stdout => io::stdout().as_raw_fd(),
-        Descriptor::Stderr => io::stderr().as_raw_fd(),
-    };
-
-    let rawfd_to = match &fe_to.fd_object.descriptor {
-        Descriptor::File(f) => f.as_raw_fd(),
-        Descriptor::Stdin => io::stdin().as_raw_fd(),
-        Descriptor::Stdout => io::stdout().as_raw_fd(),
-        Descriptor::Stderr => io::stderr().as_raw_fd(),
-    };
+    let rawfd_from = fe_from.fd_object.descriptor.as_raw_fd();
+    let rawfd_to = fe_to.fd_object.descriptor.as_raw_fd();
 
     if let Err(e) = nix::unistd::dup2(rawfd_from, rawfd_to) {
         return Err(host_impl::errno_from_nix(e.as_errno().unwrap()));
@@ -125,12 +95,7 @@ pub(crate) fn fd_seek(
         _ => return Err(host::__WASI_EINVAL),
     };
 
-    let rawfd = match &fd_entry.fd_object.descriptor {
-        Descriptor::File(f) => f.as_raw_fd(),
-        Descriptor::Stdin => io::stdin().as_raw_fd(),
-        Descriptor::Stdout => io::stdout().as_raw_fd(),
-        Descriptor::Stderr => io::stderr().as_raw_fd(),
-    };
+    let rawfd = fd_entry.fd_object.descriptor.as_raw_fd();
 
     match lseek(rawfd, offset, nwhence) {
         Ok(offset) => Ok(offset as u64),
@@ -139,14 +104,9 @@ pub(crate) fn fd_seek(
 }
 
 pub(crate) fn fd_tell(fd_entry: &FdEntry) -> Result<u64, host::__wasi_errno_t> {
-    let rawfd = match &fd_entry.fd_object.descriptor {
-        Descriptor::File(f) => f.as_raw_fd(),
-        Descriptor::Stdin => io::stdin().as_raw_fd(),
-        Descriptor::Stdout => io::stdout().as_raw_fd(),
-        Descriptor::Stderr => io::stderr().as_raw_fd(),
-    };
-
     use nix::unistd::{lseek, Whence};
+
+    let rawfd = fd_entry.fd_object.descriptor.as_raw_fd();
     match lseek(rawfd, 0, Whence::SeekCur) {
         Ok(newoffset) => Ok(newoffset as u64),
         Err(e) => Err(host_impl::errno_from_nix(e.as_errno().unwrap())),
@@ -156,14 +116,9 @@ pub(crate) fn fd_tell(fd_entry: &FdEntry) -> Result<u64, host::__wasi_errno_t> {
 pub(crate) fn fd_fdstat_get(
     fd_entry: &FdEntry,
 ) -> Result<host::__wasi_fdflags_t, host::__wasi_errno_t> {
-    let rawfd = match &fd_entry.fd_object.descriptor {
-        Descriptor::File(f) => f.as_raw_fd(),
-        Descriptor::Stdin => io::stdin().as_raw_fd(),
-        Descriptor::Stdout => io::stdout().as_raw_fd(),
-        Descriptor::Stderr => io::stderr().as_raw_fd(),
-    };
-
     use nix::fcntl::{fcntl, OFlag, F_GETFL};
+
+    let rawfd = fd_entry.fd_object.descriptor.as_raw_fd();
     match fcntl(rawfd, F_GETFL).map(OFlag::from_bits_truncate) {
         Ok(flags) => Ok(host_impl::fdflags_from_nix(flags)),
         Err(e) => Err(host_impl::errno_from_nix(e.as_errno().unwrap())),
@@ -174,13 +129,7 @@ pub(crate) fn fd_fdstat_set_flags(
     fd_entry: &FdEntry,
     fdflags: host::__wasi_fdflags_t,
 ) -> Result<(), host::__wasi_errno_t> {
-    let rawfd = match &fd_entry.fd_object.descriptor {
-        Descriptor::File(f) => f.as_raw_fd(),
-        Descriptor::Stdin => io::stdin().as_raw_fd(),
-        Descriptor::Stdout => io::stdout().as_raw_fd(),
-        Descriptor::Stderr => io::stderr().as_raw_fd(),
-    };
-
+    let rawfd = fd_entry.fd_object.descriptor.as_raw_fd();
     let nix_flags = host_impl::nix_from_fdflags(fdflags);
     match nix::fcntl::fcntl(rawfd, nix::fcntl::F_SETFL(nix_flags)) {
         Ok(_) => Ok(()),
@@ -189,12 +138,7 @@ pub(crate) fn fd_fdstat_set_flags(
 }
 
 pub(crate) fn fd_sync(fd_entry: &FdEntry) -> Result<(), host::__wasi_errno_t> {
-    let rawfd = match &fd_entry.fd_object.descriptor {
-        Descriptor::File(f) => f.as_raw_fd(),
-        Descriptor::Stdin => io::stdin().as_raw_fd(),
-        Descriptor::Stdout => io::stdout().as_raw_fd(),
-        Descriptor::Stderr => io::stderr().as_raw_fd(),
-    };
+    let rawfd = fd_entry.fd_object.descriptor.as_raw_fd();
     nix::unistd::fsync(rawfd).map_err(|e| host_impl::errno_from_nix(e.as_errno().unwrap()))
 }
 
@@ -215,12 +159,7 @@ pub(crate) fn fd_advise(
             host::__WASI_ADVICE_NORMAL => libc::POSIX_FADV_NORMAL,
             _ => return Err(host::__WASI_EINVAL),
         };
-        let rawfd = match &fd_entry.fd_object.descriptor {
-            Descriptor::File(f) => f.as_raw_fd(),
-            Descriptor::Stdin => io::stdin().as_raw_fd(),
-            Descriptor::Stdout => io::stdout().as_raw_fd(),
-            Descriptor::Stderr => io::stderr().as_raw_fd(),
-        };
+        let rawfd = fd_entry.fd_object.descriptor.as_raw_fd();
         let res = unsafe { libc::posix_fadvise(rawfd, offset as off_t, len as off_t, host_advice) };
         if res != 0 {
             return Err(host_impl::errno_from_nix(nix::errno::Errno::last()));
@@ -249,12 +188,7 @@ pub(crate) fn fd_allocate(
     offset: host::__wasi_filesize_t,
     len: host::__wasi_filesize_t,
 ) -> Result<(), host::__wasi_errno_t> {
-    let rawfd = match &fd_entry.fd_object.descriptor {
-        Descriptor::File(f) => f.as_raw_fd(),
-        Descriptor::Stdin => io::stdin().as_raw_fd(),
-        Descriptor::Stdout => io::stdout().as_raw_fd(),
-        Descriptor::Stderr => io::stderr().as_raw_fd(),
-    };
+    let rawfd = fd_entry.fd_object.descriptor.as_raw_fd();
     #[cfg(target_os = "linux")]
     {
         let res = unsafe { libc::posix_fallocate(rawfd, offset as off_t, len as off_t) };
@@ -494,14 +428,9 @@ pub(crate) fn fd_readdir(
     host_buf: &mut [u8],
     cookie: host::__wasi_dircookie_t,
 ) -> Result<usize, host::__wasi_errno_t> {
-    let rawfd = match &fd_entry.fd_object.descriptor {
-        Descriptor::File(f) => f.as_raw_fd(),
-        Descriptor::Stdin => io::stdin().as_raw_fd(),
-        Descriptor::Stdout => io::stdout().as_raw_fd(),
-        Descriptor::Stderr => io::stderr().as_raw_fd(),
-    };
     use libc::{dirent, fdopendir, memcpy, readdir_r, seekdir};
 
+    let rawfd = fd_entry.fd_object.descriptor.as_raw_fd();
     let host_buf_ptr = host_buf.as_mut_ptr();
     let host_buf_len = host_buf.len();
     let dir = unsafe { fdopendir(rawfd) };
@@ -647,13 +576,8 @@ pub(crate) fn fd_filestat_get(
     fd_entry: &FdEntry,
 ) -> Result<host::__wasi_filestat_t, host::__wasi_errno_t> {
     use nix::sys::stat::fstat;
-    let rawfd = match &fd_entry.fd_object.descriptor {
-        Descriptor::File(f) => f.as_raw_fd(),
-        Descriptor::Stdin => io::stdin().as_raw_fd(),
-        Descriptor::Stdout => io::stdout().as_raw_fd(),
-        Descriptor::Stderr => io::stderr().as_raw_fd(),
-    };
 
+    let rawfd = fd_entry.fd_object.descriptor.as_raw_fd();
     match fstat(rawfd) {
         Err(e) => Err(host_impl::errno_from_nix(e.as_errno().unwrap())),
         Ok(filestat) => Ok(host_impl::filestat_from_nix(filestat)),
@@ -699,12 +623,7 @@ pub(crate) fn fd_filestat_set_times(
     };
     let ts_mtime = *TimeSpec::nanoseconds(st_mtim as i64).as_ref();
     let times = [ts_atime, ts_mtime];
-    let rawfd = match &fd_entry.fd_object.descriptor {
-        Descriptor::File(f) => f.as_raw_fd(),
-        Descriptor::Stdin => io::stdin().as_raw_fd(),
-        Descriptor::Stdout => io::stdout().as_raw_fd(),
-        Descriptor::Stderr => io::stderr().as_raw_fd(),
-    };
+    let rawfd = fd_entry.fd_object.descriptor.as_raw_fd();
     let res = unsafe { libc::futimens(rawfd, times.as_ptr()) };
     if res != 0 {
         Err(host_impl::errno_from_nix(nix::errno::Errno::last()))
@@ -718,13 +637,8 @@ pub(crate) fn fd_filestat_set_size(
     st_size: host::__wasi_filesize_t,
 ) -> Result<(), host::__wasi_errno_t> {
     use nix::unistd::ftruncate;
-    let rawfd = match &fd_entry.fd_object.descriptor {
-        Descriptor::File(f) => f.as_raw_fd(),
-        Descriptor::Stdin => io::stdin().as_raw_fd(),
-        Descriptor::Stdout => io::stdout().as_raw_fd(),
-        Descriptor::Stderr => io::stderr().as_raw_fd(),
-    };
 
+    let rawfd = fd_entry.fd_object.descriptor.as_raw_fd();
     ftruncate(rawfd, st_size as off_t).map_err(|e| host_impl::errno_from_nix(e.as_errno().unwrap()))
 }
 

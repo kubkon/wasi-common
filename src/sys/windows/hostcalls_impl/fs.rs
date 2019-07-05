@@ -2,13 +2,12 @@
 #![allow(unused)]
 use super::fs_helpers::*;
 use crate::ctx::WasiCtx;
-use crate::fdentry::{Descriptor, FdEntry};
+use crate::fdentry::FdEntry;
 use crate::host;
 use crate::sys::fdentry_impl::determine_type_rights;
 use crate::sys::host_impl::{self, RawString};
 
 use std::fs::File;
-use std::io;
 use std::os::windows::prelude::{AsRawHandle, FromRawHandle};
 
 pub(crate) fn fd_datasync(fd_entry: &FdEntry) -> Result<(), host::__wasi_errno_t> {
@@ -55,12 +54,8 @@ pub(crate) fn fd_fdstat_get(
     fd_entry: &FdEntry,
 ) -> Result<host::__wasi_fdflags_t, host::__wasi_errno_t> {
     use winx::file::AccessRight;
-    let raw_handle = match &fd_entry.fd_object.descriptor {
-        Descriptor::File(f) => f.as_raw_handle(),
-        Descriptor::Stdin => io::stdin().as_raw_handle(),
-        Descriptor::Stdout => io::stdout().as_raw_handle(),
-        Descriptor::Stderr => io::stderr().as_raw_handle(),
-    };
+
+    let raw_handle = fd_entry.fd_object.descriptor.as_raw_handle();
     match winx::file::get_file_access_rights(raw_handle).map(AccessRight::from_bits_truncate) {
         Ok(rights) => Ok(host_impl::fdflags_from_win(rights)),
         Err(e) => Err(host_impl::errno_from_win(e)),

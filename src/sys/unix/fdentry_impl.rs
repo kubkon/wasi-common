@@ -1,6 +1,19 @@
+use crate::fdentry::Descriptor;
 use crate::host;
 
-use std::os::unix::prelude::{AsRawFd, FileTypeExt, FromRawFd};
+use std::io;
+use std::os::unix::prelude::{AsRawFd, FileTypeExt, FromRawFd, RawFd};
+
+impl AsRawFd for Descriptor {
+    fn as_raw_fd(&self) -> RawFd {
+        match self {
+            Descriptor::File(ref f) => f.as_raw_fd(),
+            Descriptor::Stdin => io::stdin().as_raw_fd(),
+            Descriptor::Stdout => io::stdout().as_raw_fd(),
+            Descriptor::Stderr => io::stderr().as_raw_fd(),
+        }
+    }
+}
 
 pub(crate) fn determine_type_and_access_rights<Fd: AsRawFd>(
     fd: &Fd,

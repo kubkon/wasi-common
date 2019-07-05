@@ -1,7 +1,21 @@
 use super::host_impl;
+use crate::fdentry::Descriptor;
 use crate::host;
+
 use std::fs::File;
-use std::os::windows::prelude::{AsRawHandle, FromRawHandle};
+use std::io;
+use std::os::windows::prelude::{AsRawHandle, FromRawHandle, RawHandle};
+
+impl AsRawHandle for Descriptor {
+    fn as_raw_handle(&self) -> RawHandle {
+        match self {
+            Descriptor::File(ref f) => f.as_raw_handle(),
+            Descriptor::Stdin => io::stdin().as_raw_handle(),
+            Descriptor::Stdout => io::stdout().as_raw_handle(),
+            Descriptor::Stderr => io::stderr().as_raw_handle(),
+        }
+    }
+}
 
 pub(crate) fn determine_type_and_access_rights<Handle: AsRawHandle>(
     handle: &Handle,
