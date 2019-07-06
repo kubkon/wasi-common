@@ -9,7 +9,6 @@ use crate::sys::host_impl::{self, RawString};
 use nix::libc::{self, c_long};
 use std::ffi::OsStr;
 use std::fs::File;
-use std::os::unix::prelude::{AsRawFd, FromRawFd};
 use std::path::{Component, Path};
 
 /// Normalizes a path to ensure that the target path is located under the directory provided.
@@ -24,10 +23,6 @@ pub fn path_get(
     needed_inheriting: host::__wasi_rights_t,
     needs_final_component: bool,
 ) -> Result<(File, RawString), host::__wasi_errno_t> {
-    use nix::errno::Errno;
-    use nix::fcntl::{openat, OFlag};
-    use nix::sys::stat::Mode;
-
     const MAX_SYMLINK_EXPANSIONS: usize = 128;
 
     if path.contains(&b'\0') {
@@ -103,25 +98,24 @@ pub fn path_get(
                         }
 
                         if !path_stack.is_empty() || (ends_with_slash && !needs_final_component) {
-                            match openat(
-                                dir_stack.last().expect("dir_stack is never empty").as_raw_fd(),
-                                head.as_ref(),
-                                OFlag::O_RDONLY | OFlag::O_DIRECTORY | OFlag::O_NOFOLLOW,
-                                Mode::empty(),
-                            ) {
+                            match openat(dir_stack.last().expect("dir_stack is never empty"), &head)
+                            {
                                 Ok(new_dir) => {
-                                    dir_stack.push(unsafe { File::from_raw_fd(new_dir) });
+                                    dir_stack.push(new_dir);
                                     continue;
                                 }
                                 Err(e)
-                                    // Check to see if it was a symlink. Linux indicates
-                                    // this with ENOTDIR because of the O_DIRECTORY flag.
-                                    if e.as_errno() == Some(Errno::ELOOP)
-                                        || e.as_errno() == Some(Errno::EMLINK)
-                                        || e.as_errno() == Some(Errno::ENOTDIR) =>
+                                    if e == host::__WASI_ELOOP
+                                        || e == host::__WASI_EMLINK
+                                        || e == host::__WASI_ENOTDIR =>
+                                // Check to see if it was a symlink. Linux indicates
+                                // this with ENOTDIR because of the O_DIRECTORY flag.
                                 {
                                     // attempt symlink expansion
-                                    match readlinkat(dir_stack.last().expect("dir_stack is never empty"), &head) {
+                                    match readlinkat(
+                                        dir_stack.last().expect("dir_stack is never empty"),
+                                        &head,
+                                    ) {
                                         Ok(mut link_path) => {
                                             symlink_expansions += 1;
                                             if symlink_expansions > MAX_SYMLINK_EXPANSIONS {
@@ -141,9 +135,7 @@ pub fn path_get(
                                     }
                                 }
                                 Err(e) => {
-                                    return Err(
-                                        host_impl::errno_from_nix(e.as_errno().unwrap()),
-                                    );
+                                    return Err(e);
                                 }
                             }
                         } else if ends_with_slash
@@ -194,6 +186,21 @@ pub fn path_get(
             }
         }
     }
+}
+
+fn openat(dirfd: &File, path: &RawString) -> Result<File, host::__wasi_errno_t> {
+    use nix::fcntl::{self, OFlag};
+    use nix::sys::stat::Mode;
+    use std::os::unix::prelude::{AsRawFd, FromRawFd};
+
+    fcntl::openat(
+        dirfd.as_raw_fd(),
+        path.as_ref(),
+        OFlag::O_RDONLY | OFlag::O_DIRECTORY | OFlag::O_NOFOLLOW,
+        Mode::empty(),
+    )
+    .map(|new_fd| unsafe { File::from_raw_fd(new_fd) })
+    .map_err(|e| host_impl::errno_from_nix(e.as_errno().unwrap()))
 }
 
 fn readlinkat(dirfd: &File, path: &RawString) -> Result<RawString, host::__wasi_errno_t> {
