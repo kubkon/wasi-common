@@ -25,7 +25,7 @@ pub fn path_get(
     needs_final_component: bool,
 ) -> Result<(File, RawString), host::__wasi_errno_t> {
     use nix::errno::Errno;
-    use nix::fcntl::{openat, readlinkat, OFlag};
+    use nix::fcntl::{openat, OFlag};
     use nix::sys::stat::Mode;
 
     const MAX_SYMLINK_EXPANSIONS: usize = 128;
@@ -53,9 +53,6 @@ pub fn path_get(
 
     // Track the number of symlinks we've expanded, so we can return `ELOOP` after too many.
     let mut symlink_expansions = 0;
-
-    // Buffer to read links into; defined outside of the loop so we don't reallocate it constantly.
-    let mut readlink_buf = vec![0u8; libc::PATH_MAX as usize + 1];
 
     // TODO: rewrite this using a custom posix path type, with a component iterator that respects
     // trailing slashes. This version does way too much allocation, and is way too fiddly.
@@ -124,18 +121,13 @@ pub fn path_get(
                                         || e.as_errno() == Some(Errno::ENOTDIR) =>
                                 {
                                     // attempt symlink expansion
-                                    match readlinkat(
-                                        dir_stack.last().expect("dir_stack is never empty").as_raw_fd(),
-                                        head.as_ref(),
-                                        readlink_buf.as_mut_slice(),
-                                    ) {
-                                        Ok(link_path) => {
+                                    match readlinkat(dir_stack.last().expect("dir_stack is never empty"), &head) {
+                                        Ok(mut link_path) => {
                                             symlink_expansions += 1;
                                             if symlink_expansions > MAX_SYMLINK_EXPANSIONS {
                                                 return Err(host::__WASI_ELOOP);
                                             }
 
-                                            let mut link_path = RawString::from(link_path);
                                             if head.ends_with(b"/") {
                                                 link_path.push("/");
                                             }
@@ -144,9 +136,7 @@ pub fn path_get(
                                             continue;
                                         }
                                         Err(e) => {
-                                            return Err(
-                                                host_impl::errno_from_nix(e.as_errno().unwrap()),
-                                            );
+                                            return Err(e);
                                         }
                                     }
                                 }
@@ -162,19 +152,15 @@ pub fn path_get(
                             // if there's a trailing slash, or if `LOOKUP_SYMLINK_FOLLOW` is set, attempt
                             // symlink expansion
                             match readlinkat(
-                                dir_stack
-                                    .last()
-                                    .expect("dir_stack is never empty")
-                                    .as_raw_fd(),
-                                head.as_ref(),
-                                readlink_buf.as_mut_slice(),
+                                dir_stack.last().expect("dir_stack is never empty"),
+                                &head,
                             ) {
-                                Ok(link_path) => {
+                                Ok(mut link_path) => {
                                     symlink_expansions += 1;
                                     if symlink_expansions > MAX_SYMLINK_EXPANSIONS {
                                         return Err(host::__WASI_ELOOP);
                                     }
-                                    let mut link_path = RawString::from(link_path);
+
                                     if head.ends_with(b"/") {
                                         link_path.push("/");
                                     }
@@ -183,10 +169,8 @@ pub fn path_get(
                                     continue;
                                 }
                                 Err(e) => {
-                                    let errno = e.as_errno().unwrap();
-                                    if errno != Errno::EINVAL && errno != Errno::ENOENT {
-                                        // only return an error if this path is not actually a symlink
-                                        return Err(host_impl::errno_from_nix(errno));
+                                    if e != host::__WASI_EINVAL && e != host::__WASI_ENOENT {
+                                        return Err(e);
                                     }
                                 }
                             }
@@ -210,6 +194,17 @@ pub fn path_get(
             }
         }
     }
+}
+
+fn readlinkat(dirfd: &File, path: &RawString) -> Result<RawString, host::__wasi_errno_t> {
+    use nix::fcntl;
+    use std::os::unix::prelude::AsRawFd;
+
+    let readlink_buf = &mut [0u8; libc::PATH_MAX as usize + 1];
+
+    fcntl::readlinkat(dirfd.as_raw_fd(), path.as_ref(), readlink_buf)
+        .map(RawString::from)
+        .map_err(|e| host_impl::errno_from_nix(e.as_errno().unwrap()))
 }
 
 #[cfg(not(target_os = "macos"))]
