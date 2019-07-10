@@ -133,6 +133,7 @@ cfg_if::cfg_if! {
                 match name {
                     "big_random_buf" => false,
                     "sched_yield" => false,
+                    "file_pread_pwrite" => false,
                     _ => true,
                 }
             } else {
