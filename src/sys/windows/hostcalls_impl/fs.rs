@@ -12,10 +12,6 @@ use std::fs::File;
 use std::os::windows::fs::FileExt;
 use std::os::windows::prelude::{AsRawHandle, FromRawHandle};
 
-pub(crate) fn fd_datasync(fd_entry: &FdEntry) -> Result<(), host::__wasi_errno_t> {
-    unimplemented!("fd_datasync")
-}
-
 pub(crate) fn fd_pread(
     file: &File,
     buf: &mut [u8],

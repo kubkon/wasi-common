@@ -43,9 +43,13 @@ pub fn fd_datasync(wasi_ctx: &WasiCtx, fd: wasm32::__wasi_fd_t) -> wasm32::__was
         Ok(fe) => fe,
         Err(e) => return return_enc_errno(e),
     };
-    let ret = match hostcalls_impl::fd_datasync(fe) {
+    let file = match &*fe.fd_object.descriptor {
+        Descriptor::File(f) => f,
+        _ => return return_enc_errno(host::__WASI_EBADF),
+    };
+    let ret = match file.sync_data() {
         Ok(()) => host::__WASI_ESUCCESS,
-        Err(e) => e,
+        Err(err) => err.raw_os_error().map_or(host::__WASI_EIO, errno_from_host),
     };
 
     return_enc_errno(ret)

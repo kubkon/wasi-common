@@ -14,23 +14,6 @@ use std::fs::File;
 use std::os::unix::fs::FileExt;
 use std::os::unix::prelude::{AsRawFd, FromRawFd};
 
-pub(crate) fn fd_datasync(fd_entry: &FdEntry) -> Result<(), host::__wasi_errno_t> {
-    let rawfd = fd_entry.fd_object.descriptor.as_raw_fd();
-    let res;
-
-    #[cfg(target_os = "linux")]
-    {
-        res = nix::unistd::fdatasync(rawfd);
-    }
-
-    #[cfg(not(target_os = "linux"))]
-    {
-        res = nix::unistd::fsync(rawfd);
-    }
-
-    res.map_err(|e| host_impl::errno_from_nix(e.as_errno().unwrap()))
-}
-
 pub(crate) fn fd_pread(
     file: &File,
     buf: &mut [u8],
