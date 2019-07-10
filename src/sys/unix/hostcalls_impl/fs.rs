@@ -2,6 +2,7 @@
 #![allow(unused_unsafe)]
 use super::fs_helpers::*;
 use crate::fdentry::FdEntry;
+use crate::sys::errno_from_host;
 use crate::sys::fdentry_impl::determine_type_rights;
 use crate::sys::host_impl::{self, RawString};
 
@@ -10,6 +11,7 @@ use crate::{host, wasm32};
 
 use nix::libc::{self, c_long, c_void, off_t};
 use std::fs::File;
+use std::os::unix::fs::FileExt;
 use std::os::unix::prelude::{AsRawFd, FromRawFd};
 
 pub(crate) fn fd_datasync(fd_entry: &FdEntry) -> Result<(), host::__wasi_errno_t> {
@@ -30,23 +32,21 @@ pub(crate) fn fd_datasync(fd_entry: &FdEntry) -> Result<(), host::__wasi_errno_t
 }
 
 pub(crate) fn fd_pread(
-    fd_entry: &FdEntry,
+    file: &File,
     buf: &mut [u8],
     offset: host::__wasi_filesize_t,
 ) -> Result<usize, host::__wasi_errno_t> {
-    let rawfd = fd_entry.fd_object.descriptor.as_raw_fd();
-    nix::sys::uio::pread(rawfd, buf, offset as off_t)
-        .map_err(|e| host_impl::errno_from_nix(e.as_errno().unwrap()))
+    file.read_at(buf, offset)
+        .map_err(|e| e.raw_os_error().map_or(host::__WASI_EIO, errno_from_host))
 }
 
 pub(crate) fn fd_pwrite(
-    fd_entry: &FdEntry,
+    file: &mut File,
     buf: &[u8],
     offset: host::__wasi_filesize_t,
 ) -> Result<usize, host::__wasi_errno_t> {
-    let rawfd = fd_entry.fd_object.descriptor.as_raw_fd();
-    nix::sys::uio::pwrite(rawfd, buf, offset as off_t)
-        .map_err(|e| host_impl::errno_from_nix(e.as_errno().unwrap()))
+    file.write_at(buf, offset)
+        .map_err(|e| e.raw_os_error().map_or(host::__WASI_EIO, errno_from_host))
 }
 
 pub(crate) fn fd_renumber(

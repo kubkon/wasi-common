@@ -4,10 +4,12 @@ use super::fs_helpers::*;
 use crate::ctx::WasiCtx;
 use crate::fdentry::FdEntry;
 use crate::host;
+use crate::sys::errno_from_host;
 use crate::sys::fdentry_impl::determine_type_rights;
 use crate::sys::host_impl::{self, RawString};
 
 use std::fs::File;
+use std::os::windows::fs::FileExt;
 use std::os::windows::prelude::{AsRawHandle, FromRawHandle};
 
 pub(crate) fn fd_datasync(fd_entry: &FdEntry) -> Result<(), host::__wasi_errno_t> {
@@ -15,19 +17,21 @@ pub(crate) fn fd_datasync(fd_entry: &FdEntry) -> Result<(), host::__wasi_errno_t
 }
 
 pub(crate) fn fd_pread(
-    fd_entry: &FdEntry,
+    file: &File,
     buf: &mut [u8],
     offset: host::__wasi_filesize_t,
 ) -> Result<usize, host::__wasi_errno_t> {
-    unimplemented!("fd_pread")
+    file.seek_read(buf, offset)
+        .map_err(|err| err.raw_os_error().map_or(host::__WASI_EIO, errno_from_host))
 }
 
 pub(crate) fn fd_pwrite(
-    fd_entry: &FdEntry,
+    file: &mut File,
     buf: &[u8],
     offset: host::__wasi_filesize_t,
 ) -> Result<usize, host::__wasi_errno_t> {
-    unimplemented!("fd_pwrite")
+    file.seek_write(buf, offset)
+        .map_err(|err| err.raw_os_error().map_or(host::__WASI_EIO, errno_from_host))
 }
 
 pub(crate) fn fd_renumber(

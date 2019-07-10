@@ -80,13 +80,18 @@ pub fn fd_pread(
         Ok(fe) => fe,
         Err(e) => return return_enc_errno(e),
     };
+    let file = match &*fe.fd_object.descriptor {
+        Descriptor::File(f) => f,
+        _ => return return_enc_errno(host::__WASI_EBADF),
+    };
+
     let offset = dec_filesize(offset);
     if offset > i64::max_value() as u64 {
         return return_enc_errno(host::__WASI_EIO);
     }
     let buf_size = iovs.iter().map(|v| v.buf_len).sum();
     let mut buf = vec![0; buf_size];
-    let host_nread = match hostcalls_impl::fd_pread(fe, &mut buf, offset) {
+    let host_nread = match hostcalls_impl::fd_pread(file, &mut buf, offset) {
         Ok(host_nread) => host_nread,
         Err(e) => return return_enc_errno(e),
     };
@@ -114,7 +119,7 @@ pub fn fd_pread(
 
 #[wasi_common_cbindgen]
 pub fn fd_pwrite(
-    wasi_ctx: &WasiCtx,
+    wasi_ctx: &mut WasiCtx,
     memory: &mut [u8],
     fd: wasm32::__wasi_fd_t,
     iovs_ptr: wasm32::uintptr_t,
@@ -137,10 +142,15 @@ pub fn fd_pwrite(
         Err(e) => return return_enc_errno(e),
     };
     let rights = host::__WASI_RIGHT_FD_READ;
-    let fe = match wasi_ctx.get_fd_entry(fd, rights, 0) {
+    let fe = match wasi_ctx.get_fd_entry_mut(fd, rights, 0) {
         Ok(fe) => fe,
         Err(e) => return return_enc_errno(e),
     };
+    let file = match &mut *fe.fd_object.descriptor {
+        Descriptor::File(f) => f,
+        _ => return return_enc_errno(host::__WASI_EBADF),
+    };
+
     let offset = dec_filesize(offset);
     if offset > i64::max_value() as u64 {
         return return_enc_errno(host::__WASI_EIO);
@@ -152,7 +162,7 @@ pub fn fd_pwrite(
             std::slice::from_raw_parts(iov.buf as *const u8, iov.buf_len)
         });
     }
-    let host_nwritten = match hostcalls_impl::fd_pwrite(fe, &buf, offset) {
+    let host_nwritten = match hostcalls_impl::fd_pwrite(file, &buf, offset) {
         Ok(host_nwritten) => host_nwritten,
         Err(e) => return return_enc_errno(e),
     };
