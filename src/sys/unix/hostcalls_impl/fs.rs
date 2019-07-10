@@ -24,7 +24,7 @@ pub(crate) fn fd_pread(
 }
 
 pub(crate) fn fd_pwrite(
-    file: &mut File,
+    file: &File,
     buf: &[u8],
     offset: host::__wasi_filesize_t,
 ) -> Result<usize, host::__wasi_errno_t> {

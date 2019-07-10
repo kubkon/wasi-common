@@ -9,24 +9,45 @@ use crate::sys::fdentry_impl::determine_type_rights;
 use crate::sys::host_impl::{self, RawString};
 
 use std::fs::File;
+use std::io::{self, Seek, SeekFrom};
 use std::os::windows::fs::FileExt;
 use std::os::windows::prelude::{AsRawHandle, FromRawHandle};
+
+fn read_at(mut file: &File, buf: &mut [u8], offset: u64) -> io::Result<usize> {
+    // get current cursor position
+    let cur_pos = file.seek(SeekFrom::Current(0))?;
+    // perform a seek read by a specified offset
+    let nread = file.seek_read(buf, offset)?;
+    // rewind the cursor back to the original position
+    file.seek(SeekFrom::Start(cur_pos))?;
+    Ok(nread)
+}
+
+fn write_at(mut file: &File, buf: &[u8], offset: u64) -> io::Result<usize> {
+    // get current cursor position
+    let cur_pos = file.seek(SeekFrom::Current(0))?;
+    // perform a seek write by a specified offset
+    let nwritten = file.seek_write(buf, offset)?;
+    // rewind the cursor back to the original position
+    file.seek(SeekFrom::Start(cur_pos))?;
+    Ok(nwritten)
+}
 
 pub(crate) fn fd_pread(
     file: &File,
     buf: &mut [u8],
     offset: host::__wasi_filesize_t,
 ) -> Result<usize, host::__wasi_errno_t> {
-    file.seek_read(buf, offset)
+    read_at(file, buf, offset)
         .map_err(|err| err.raw_os_error().map_or(host::__WASI_EIO, errno_from_host))
 }
 
 pub(crate) fn fd_pwrite(
-    file: &mut File,
+    file: &File,
     buf: &[u8],
     offset: host::__wasi_filesize_t,
 ) -> Result<usize, host::__wasi_errno_t> {
-    file.seek_write(buf, offset)
+    write_at(file, buf, offset)
         .map_err(|err| err.raw_os_error().map_or(host::__WASI_EIO, errno_from_host))
 }
 

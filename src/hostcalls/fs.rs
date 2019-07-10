@@ -123,7 +123,7 @@ pub fn fd_pread(
 
 #[wasi_common_cbindgen]
 pub fn fd_pwrite(
-    wasi_ctx: &mut WasiCtx,
+    wasi_ctx: &WasiCtx,
     memory: &mut [u8],
     fd: wasm32::__wasi_fd_t,
     iovs_ptr: wasm32::uintptr_t,
@@ -146,11 +146,11 @@ pub fn fd_pwrite(
         Err(e) => return return_enc_errno(e),
     };
     let rights = host::__WASI_RIGHT_FD_READ;
-    let fe = match wasi_ctx.get_fd_entry_mut(fd, rights, 0) {
+    let fe = match wasi_ctx.get_fd_entry(fd, rights, 0) {
         Ok(fe) => fe,
         Err(e) => return return_enc_errno(e),
     };
-    let file = match &mut *fe.fd_object.descriptor {
+    let file = match &*fe.fd_object.descriptor {
         Descriptor::File(f) => f,
         _ => return return_enc_errno(host::__WASI_EBADF),
     };
