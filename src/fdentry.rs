@@ -8,7 +8,7 @@ use std::path::PathBuf;
 
 #[derive(Debug)]
 pub enum Descriptor {
-    File(ManuallyDrop<fs::File>),
+    File(fs::File),
     Stdin,
     Stdout,
     Stderr,
@@ -17,7 +17,7 @@ pub enum Descriptor {
 #[derive(Debug)]
 pub struct FdObject {
     pub file_type: host::__wasi_filetype_t,
-    pub descriptor: Descriptor,
+    pub descriptor: ManuallyDrop<Descriptor>,
     pub needs_close: bool,
     // TODO: directories
 }
@@ -32,10 +32,8 @@ pub struct FdEntry {
 
 impl Drop for FdObject {
     fn drop(&mut self) {
-        if let Descriptor::File(f) = &mut self.descriptor {
-            if self.needs_close {
-                unsafe { ManuallyDrop::drop(f) }; // this drops the `file`
-            }
+        if self.needs_close {
+            unsafe { ManuallyDrop::drop(&mut self.descriptor) };
         }
     }
 }
@@ -45,12 +43,11 @@ impl FdEntry {
         let (file_type, rights_base, rights_inheriting) =
             fdentry_impl::determine_type_and_access_rights(&file)
                 .expect("could determine type and access rights");
-        let file = ManuallyDrop::new(file);
 
         Self {
             fd_object: FdObject {
                 file_type,
-                descriptor: Descriptor::File(file),
+                descriptor: ManuallyDrop::new(Descriptor::File(file)),
                 needs_close: true,
             },
             rights_base,
@@ -73,8 +70,8 @@ impl FdEntry {
         Self {
             fd_object: FdObject {
                 file_type,
-                descriptor: Descriptor::Stdin,
-                needs_close: false,
+                descriptor: ManuallyDrop::new(Descriptor::Stdin),
+                needs_close: true,
             },
             rights_base,
             rights_inheriting,
@@ -91,8 +88,8 @@ impl FdEntry {
         Self {
             fd_object: FdObject {
                 file_type,
-                descriptor: Descriptor::Stdout,
-                needs_close: false,
+                descriptor: ManuallyDrop::new(Descriptor::Stdout),
+                needs_close: true,
             },
             rights_base,
             rights_inheriting,
@@ -109,8 +106,8 @@ impl FdEntry {
         Self {
             fd_object: FdObject {
                 file_type,
-                descriptor: Descriptor::Stderr,
-                needs_close: false,
+                descriptor: ManuallyDrop::new(Descriptor::Stderr),
+                needs_close: true,
             },
             rights_base,
             rights_inheriting,

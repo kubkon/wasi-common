@@ -31,7 +31,7 @@ pub fn path_get(
     }
 
     let dirfe = wasi_ctx.get_fd_entry(dirfd, needed_base, needed_inheriting)?;
-    let dirfd = match &dirfe.fd_object.descriptor {
+    let dirfd = match &*dirfe.fd_object.descriptor {
         Descriptor::File(f) => f.try_clone().expect("could clone dirfd"),
         _ => return Err(host::__WASI_EBADF),
     };

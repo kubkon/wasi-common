@@ -194,7 +194,7 @@ pub fn fd_read(
     };
     let mut iovs: Vec<io::IoSliceMut> = iovs.iter_mut().map(host::iovec_to_host_mut).collect();
 
-    let maybe_host_nread = match &mut fe.fd_object.descriptor {
+    let maybe_host_nread = match &mut *fe.fd_object.descriptor {
         Descriptor::File(f) => f.read_vectored(&mut iovs),
         Descriptor::Stdin => io::stdin().lock().read_vectored(&mut iovs),
         _ => return return_enc_errno(host::__WASI_EBADF),
@@ -444,7 +444,7 @@ pub fn fd_write(
     };
     let iovs: Vec<io::IoSlice> = iovs.iter().map(host::iovec_to_host).collect();
 
-    let maybe_host_nwritten = match &mut fe.fd_object.descriptor {
+    let maybe_host_nwritten = match &mut *fe.fd_object.descriptor {
         Descriptor::File(f) => f.write_vectored(&iovs),
         Descriptor::Stdin => return return_enc_errno(host::__WASI_EBADF),
         Descriptor::Stdout => io::stdout().lock().write_vectored(&iovs),
