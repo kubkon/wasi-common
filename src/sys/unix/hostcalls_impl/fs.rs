@@ -137,11 +137,6 @@ pub(crate) fn fd_fdstat_set_flags(
     }
 }
 
-pub(crate) fn fd_sync(fd_entry: &FdEntry) -> Result<(), host::__wasi_errno_t> {
-    let rawfd = fd_entry.fd_object.descriptor.as_raw_fd();
-    nix::unistd::fsync(rawfd).map_err(|e| host_impl::errno_from_nix(e.as_errno().unwrap()))
-}
-
 pub(crate) fn fd_advise(
     fd_entry: &FdEntry,
     advice: host::__wasi_advice_t,

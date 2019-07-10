@@ -73,10 +73,6 @@ pub(crate) fn fd_fdstat_set_flags(
     unimplemented!("fd_fdstat_set_flags")
 }
 
-pub(crate) fn fd_sync(fd_entry: &FdEntry) -> Result<(), host::__wasi_errno_t> {
-    unimplemented!("fd_sync")
-}
-
 pub(crate) fn fd_advise(
     fd_entry: &FdEntry,
     advice: host::__wasi_advice_t,
