@@ -4,6 +4,7 @@
 use crate::ctx::WasiCtx;
 use crate::fdentry::Descriptor;
 use crate::host;
+use crate::sys::errno_from_host;
 use crate::sys::host_impl::{self, RawString};
 
 use std::ffi::OsStr;
@@ -28,7 +29,10 @@ pub fn path_get(
 
     let dirfe = wasi_ctx.get_fd_entry(dirfd, needed_base, needed_inheriting)?;
     let dirfd = match &*dirfe.fd_object.descriptor {
-        Descriptor::File(f) => f.try_clone().expect("could clone dirfd"),
+        Descriptor::File(f) => f.try_clone().map_err(|err| {
+            err.raw_os_error()
+                .map_or(host::__WASI_EBADF, errno_from_host)
+        })?,
         _ => return Err(host::__WASI_EBADF),
     };
 
@@ -73,7 +77,7 @@ pub fn path_get(
                     }
                     Component::ParentDir => {
                         // ".." so pop a dir
-                        let _ = dir_stack.pop().expect("dir_stack is never empty");
+                        let _ = dir_stack.pop().ok_or(host::__WASI_ENOTCAPABLE)?;
 
                         // we're not allowed to pop past the original directory
                         if dir_stack.is_empty() {
@@ -92,7 +96,7 @@ pub fn path_get(
                             match winx::file::openat(
                                 dir_stack
                                     .last()
-                                    .expect("dir_stack is never empty")
+                                    .ok_or(host::__WASI_ENOTCAPABLE)?
                                     .as_raw_handle(),
                                 head.as_ref(),
                                 winx::file::AccessRight::FILE_GENERIC_READ,
@@ -109,10 +113,7 @@ pub fn path_get(
                             }
                         } else {
                             // we're done
-                            return Ok((
-                                dir_stack.pop().expect("there is always a dirfd to return"),
-                                head,
-                            ));
+                            return Ok((dir_stack.pop().ok_or(host::__WASI_ENOTCAPABLE)?, head));
                         }
                     }
                 }
@@ -121,7 +122,7 @@ pub fn path_get(
                 // no further components to process. means we've hit a case like "." or "a/..", or if the
                 // input path has trailing slashes and `needs_final_component` is not set
                 return Ok((
-                    dir_stack.pop().expect("there is always a dirfd to return"),
+                    dir_stack.pop().ok_or(host::__WASI_ENOTCAPABLE)?,
                     RawString::from(OsStr::new(".")),
                 ));
             }
