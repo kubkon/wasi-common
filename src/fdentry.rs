@@ -1,5 +1,5 @@
 use super::host;
-use crate::sys::fdentry_impl;
+use crate::sys::{errno_from_host, fdentry_impl};
 
 use std::fs;
 use std::io;
@@ -39,79 +39,69 @@ impl Drop for FdObject {
 }
 
 impl FdEntry {
-    pub fn from(file: fs::File) -> Self {
-        let (file_type, rights_base, rights_inheriting) =
-            fdentry_impl::determine_type_and_access_rights(&file)
-                .expect("could determine type and access rights");
-
-        Self {
-            fd_object: FdObject {
-                file_type,
-                descriptor: ManuallyDrop::new(Descriptor::File(file)),
-                needs_close: true,
+    pub fn from(file: fs::File) -> Result<Self, host::__wasi_errno_t> {
+        fdentry_impl::determine_type_and_access_rights(&file).map(
+            |(file_type, rights_base, rights_inheriting)| Self {
+                fd_object: FdObject {
+                    file_type,
+                    descriptor: ManuallyDrop::new(Descriptor::File(file)),
+                    needs_close: true,
+                },
+                rights_base,
+                rights_inheriting,
+                preopen_path: None,
             },
-            rights_base,
-            rights_inheriting,
-            preopen_path: None,
-        }
+        )
     }
 
-    pub fn duplicate(file: &fs::File) -> Self {
-        let file = file.try_clone().expect("could duplicate file");
-        Self::from(file)
+    pub fn duplicate(file: &fs::File) -> Result<Self, host::__wasi_errno_t> {
+        file.try_clone()
+            .map_err(|err| err.raw_os_error().map_or(host::__WASI_EIO, errno_from_host))
+            .and_then(Self::from)
     }
 
-    pub fn duplicate_stdin() -> Self {
-        let stdin = io::stdin();
-        let (file_type, rights_base, rights_inheriting) =
-            fdentry_impl::determine_type_and_access_rights(&stdin)
-                .expect("could determinte type and access rights for STDIN");
-
-        Self {
-            fd_object: FdObject {
-                file_type,
-                descriptor: ManuallyDrop::new(Descriptor::Stdin),
-                needs_close: true,
+    pub fn duplicate_stdin() -> Result<Self, host::__wasi_errno_t> {
+        fdentry_impl::determine_type_and_access_rights(&io::stdin()).map(
+            |(file_type, rights_base, rights_inheriting)| Self {
+                fd_object: FdObject {
+                    file_type,
+                    descriptor: ManuallyDrop::new(Descriptor::Stdin),
+                    needs_close: true,
+                },
+                rights_base,
+                rights_inheriting,
+                preopen_path: None,
             },
-            rights_base,
-            rights_inheriting,
-            preopen_path: None,
-        }
+        )
     }
 
-    pub fn duplicate_stdout() -> Self {
-        let stdout = io::stdout();
-        let (file_type, rights_base, rights_inheriting) =
-            fdentry_impl::determine_type_and_access_rights(&stdout)
-                .expect("could determinte type and access rights for STDOUT");
-
-        Self {
-            fd_object: FdObject {
-                file_type,
-                descriptor: ManuallyDrop::new(Descriptor::Stdout),
-                needs_close: true,
+    pub fn duplicate_stdout() -> Result<Self, host::__wasi_errno_t> {
+        fdentry_impl::determine_type_and_access_rights(&io::stdout()).map(
+            |(file_type, rights_base, rights_inheriting)| Self {
+                fd_object: FdObject {
+                    file_type,
+                    descriptor: ManuallyDrop::new(Descriptor::Stdout),
+                    needs_close: true,
+                },
+                rights_base,
+                rights_inheriting,
+                preopen_path: None,
             },
-            rights_base,
-            rights_inheriting,
-            preopen_path: None,
-        }
+        )
     }
 
-    pub fn duplicate_stderr() -> Self {
-        let stderr = io::stderr();
-        let (file_type, rights_base, rights_inheriting) =
-            fdentry_impl::determine_type_and_access_rights(&stderr)
-                .expect("could determinte type and access rights for STDERR");
-
-        Self {
-            fd_object: FdObject {
-                file_type,
-                descriptor: ManuallyDrop::new(Descriptor::Stderr),
-                needs_close: true,
+    pub fn duplicate_stderr() -> Result<Self, host::__wasi_errno_t> {
+        fdentry_impl::determine_type_and_access_rights(&io::stderr()).map(
+            |(file_type, rights_base, rights_inheriting)| Self {
+                fd_object: FdObject {
+                    file_type,
+                    descriptor: ManuallyDrop::new(Descriptor::Stderr),
+                    needs_close: true,
+                },
+                rights_base,
+                rights_inheriting,
+                preopen_path: None,
             },
-            rights_base,
-            rights_inheriting,
-            preopen_path: None,
-        }
+        )
     }
 }

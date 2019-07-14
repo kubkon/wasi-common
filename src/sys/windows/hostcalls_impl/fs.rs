@@ -189,7 +189,7 @@ pub(crate) fn path_open(
     match determine_type_rights(&file) {
         Err(e) => Err(e),
         Ok((_ty, max_base, max_inheriting)) => {
-            let mut fe = FdEntry::from(file);
+            let mut fe = FdEntry::from(file)?;
             fe.rights_base &= max_base;
             fe.rights_inheriting &= max_inheriting;
             Ok(fe)

@@ -199,16 +199,18 @@ pub fn nix_from_filetype(sflags: host::__wasi_filetype_t) -> nix::sys::stat::SFl
     nix_sflags
 }
 
-pub fn filestat_from_nix(filestat: nix::sys::stat::FileStat) -> host::__wasi_filestat_t {
+pub fn filestat_from_nix(
+    filestat: nix::sys::stat::FileStat,
+) -> Result<host::__wasi_filestat_t, host::__wasi_errno_t> {
     use std::convert::TryFrom;
 
     let filetype = nix::sys::stat::SFlag::from_bits_truncate(filestat.st_mode);
-    let dev = host::__wasi_device_t::try_from(filestat.st_dev)
-        .expect("FileStat::st_dev is trivially convertible to __wasi_device_t");
-    let ino = host::__wasi_inode_t::try_from(filestat.st_ino)
-        .expect("FileStat::st_ino is trivially convertible to __wasi_inode_t");
+    let dev =
+        host::__wasi_device_t::try_from(filestat.st_dev).map_err(|_| host::__WASI_EOVERFLOW)?;
+    let ino =
+        host::__wasi_inode_t::try_from(filestat.st_ino).map_err(|_| host::__WASI_EOVERFLOW)?;
 
-    host::__wasi_filestat_t {
+    Ok(host::__wasi_filestat_t {
         st_dev: dev,
         st_ino: ino,
         st_nlink: filestat.st_nlink as host::__wasi_linkcount_t,
@@ -217,7 +219,7 @@ pub fn filestat_from_nix(filestat: nix::sys::stat::FileStat) -> host::__wasi_fil
         st_ctim: filestat.st_ctime as host::__wasi_timestamp_t,
         st_mtim: filestat.st_mtime as host::__wasi_timestamp_t,
         st_filetype: filetype_from_nix(filetype),
-    }
+    })
 }
 
 #[cfg(target_os = "linux")]

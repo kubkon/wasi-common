@@ -351,7 +351,7 @@ pub(crate) fn path_open(
     match determine_type_rights(&file) {
         Err(e) => Err(e),
         Ok((_ty, max_base, max_inheriting)) => {
-            let mut fe = FdEntry::from(file);
+            let mut fe = FdEntry::from(file)?;
             fe.rights_base &= max_base;
             fe.rights_inheriting &= max_inheriting;
             Ok(fe)
@@ -516,7 +516,7 @@ pub(crate) fn fd_filestat_get(
     let rawfd = fd_entry.fd_object.descriptor.as_raw_fd();
     match fstat(rawfd) {
         Err(e) => Err(host_impl::errno_from_nix(e.as_errno().unwrap())),
-        Ok(filestat) => Ok(host_impl::filestat_from_nix(filestat)),
+        Ok(filestat) => Ok(host_impl::filestat_from_nix(filestat)?),
     }
 }
 
@@ -606,7 +606,7 @@ pub(crate) fn path_filestat_get(
 
     match fstatat(dir.as_raw_fd(), path.as_ref(), atflags) {
         Err(e) => Err(host_impl::errno_from_nix(e.as_errno().unwrap())),
-        Ok(filestat) => Ok(host_impl::filestat_from_nix(filestat)),
+        Ok(filestat) => Ok(host_impl::filestat_from_nix(filestat)?),
     }
 }
 
