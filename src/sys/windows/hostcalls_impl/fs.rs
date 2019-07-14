@@ -99,14 +99,6 @@ pub(crate) fn fd_advise(
     unimplemented!("fd_advise")
 }
 
-pub(crate) fn fd_allocate(
-    fd_entry: &FdEntry,
-    offset: host::__wasi_filesize_t,
-    len: host::__wasi_filesize_t,
-) -> Result<(), host::__wasi_errno_t> {
-    unimplemented!("fd_allocate")
-}
-
 pub(crate) fn path_create_directory(
     ctx: &WasiCtx,
     dirfd: host::__wasi_fd_t,

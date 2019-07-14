@@ -161,48 +161,6 @@ pub(crate) fn fd_advise(
     Ok(())
 }
 
-pub(crate) fn fd_allocate(
-    fd_entry: &FdEntry,
-    offset: host::__wasi_filesize_t,
-    len: host::__wasi_filesize_t,
-) -> Result<(), host::__wasi_errno_t> {
-    let rawfd = fd_entry.fd_object.descriptor.as_raw_fd();
-    #[cfg(target_os = "linux")]
-    {
-        let res = unsafe { libc::posix_fallocate(rawfd, offset as off_t, len as off_t) };
-        if res != 0 {
-            return Err(host_impl::errno_from_nix(nix::errno::Errno::last()));
-        }
-    }
-
-    #[cfg(not(target_os = "linux"))]
-    {
-        use nix::sys::stat::fstat;
-        use nix::unistd::ftruncate;
-
-        match fstat(rawfd) {
-            Err(e) => return Err(host_impl::errno_from_nix(e.as_errno().unwrap())),
-            Ok(st) => {
-                let current_size = st.st_size as u64;
-                let wanted_size = match offset.checked_add(len) {
-                    Some(wanted_size) => wanted_size,
-                    None => return Err(host::__WASI_E2BIG),
-                };
-                if wanted_size > i64::max_value() as u64 {
-                    return Err(host::__WASI_E2BIG);
-                }
-                if wanted_size > current_size {
-                    if let Err(e) = ftruncate(rawfd, wanted_size as off_t) {
-                        return Err(host_impl::errno_from_nix(e.as_errno().unwrap()));
-                    }
-                }
-            }
-        }
-    }
-
-    Ok(())
-}
-
 pub(crate) fn path_create_directory(
     ctx: &WasiCtx,
     dirfd: host::__wasi_fd_t,

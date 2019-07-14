@@ -537,19 +537,44 @@ pub fn fd_allocate(
 
     let host_fd = dec_fd(fd);
     let rights = host::__WASI_RIGHT_FD_ALLOCATE;
+    let offset = dec_filesize(offset);
+    let len = dec_filesize(len);
+
     let fe = match wasi_ctx.get_fd_entry(host_fd, rights, 0) {
         Ok(fe) => fe,
         Err(e) => return return_enc_errno(e),
     };
-    let offset = dec_filesize(offset);
-    let len = dec_filesize(len);
-
-    let ret = match hostcalls_impl::fd_allocate(fe, offset, len) {
-        Ok(()) => host::__WASI_ESUCCESS,
-        Err(e) => e,
+    let f = match &*fe.fd_object.descriptor {
+        Descriptor::File(f) => f,
+        _ => return return_enc_errno(host::__WASI_EBADF),
     };
 
-    return_enc_errno(ret)
+    let metadata = match f
+        .metadata()
+        .map_err(|err| err.raw_os_error().map_or(host::__WASI_EIO, errno_from_host))
+    {
+        Ok(metadata) => metadata,
+        Err(e) => return return_enc_errno(e),
+    };
+    let current_size = metadata.len();
+    let wanted_size = match offset.checked_add(len) {
+        Some(wanted_size) => wanted_size,
+        None => return return_enc_errno(host::__WASI_E2BIG),
+    };
+    if wanted_size > i64::max_value() as u64 {
+        return return_enc_errno(host::__WASI_E2BIG);
+    }
+
+    if wanted_size > current_size {
+        if let Err(e) = f
+            .set_len(wanted_size)
+            .map_err(|err| err.raw_os_error().map_or(host::__WASI_EIO, errno_from_host))
+        {
+            return return_enc_errno(e);
+        }
+    }
+
+    return_enc_errno(host::__WASI_ESUCCESS)
 }
 
 #[wasi_common_cbindgen]
