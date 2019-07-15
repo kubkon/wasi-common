@@ -107,6 +107,9 @@ pub fn win_from_oflags(
     (win_disp, win_flags_attrs)
 }
 
+/// `RawString` wraps `OsString` with Windows specific extensions
+/// enabling a common interface between different hosts for
+/// WASI raw string manipulation.
 #[derive(Debug, Clone)]
 pub struct RawString {
     s: OsString,

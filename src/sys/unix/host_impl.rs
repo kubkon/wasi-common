@@ -252,6 +252,9 @@ pub fn dirent_from_host(
     Ok(entry)
 }
 
+/// `RawString` wraps `OsString` with Unix specific extensions
+/// enabling a common interface between different hosts for
+/// WASI raw string manipulation.
 #[derive(Debug, Clone)]
 pub struct RawString {
     s: OsString,
