@@ -1,14 +1,13 @@
 #![allow(non_camel_case_types)]
 #![allow(unused_unsafe)]
 use super::fs_helpers::*;
+use crate::ctx::WasiCtx;
 use crate::fdentry::FdEntry;
+use crate::host::{self, RawString};
 use crate::sys::errno_from_host;
 use crate::sys::fdentry_impl::determine_type_rights;
-use crate::sys::host_impl::{self, RawString};
-
-use crate::ctx::WasiCtx;
-use crate::{host, wasm32};
-
+use crate::sys::host_impl::{self, RawStringExt};
+use crate::wasm32;
 use nix::libc::{self, c_long, c_void, off_t};
 use std::fs::File;
 use std::os::unix::fs::FileExt;
@@ -180,10 +179,11 @@ pub(crate) fn path_create_directory(
         Ok((dir, path)) => (dir, path),
         Err(e) => return Err(e),
     };
-    let path_cstr = match std::ffi::CString::new(path.to_bytes()) {
-        Ok(path_cstr) => path_cstr,
-        Err(_) => return Err(host::__WASI_EINVAL),
-    };
+
+    let path_cstr = path
+        .to_bytes()
+        .and_then(|path| std::ffi::CString::new(path).map_err(|_| host::__WASI_EINVAL))?;
+
     // nix doesn't expose mkdirat() yet
     match unsafe { mkdirat(dir.as_raw_fd(), path_cstr.as_ptr(), 0o777) } {
         0 => Ok(()),
@@ -209,14 +209,13 @@ pub(crate) fn path_link(
         Ok((dir, path)) => (dir, path),
         Err(e) => return Err(e),
     };
-    let old_path_cstr = match std::ffi::CString::new(old_path.to_bytes()) {
-        Ok(old_path_cstr) => old_path_cstr,
-        Err(_) => return Err(host::__WASI_EINVAL),
-    };
-    let new_path_cstr = match std::ffi::CString::new(new_path.to_bytes()) {
-        Ok(new_path_cstr) => new_path_cstr,
-        Err(_) => return Err(host::__WASI_EINVAL),
-    };
+
+    let old_path_cstr = old_path
+        .to_bytes()
+        .and_then(|path| std::ffi::CString::new(path).map_err(|_| host::__WASI_EINVAL))?;
+    let new_path_cstr = new_path
+        .to_bytes()
+        .and_then(|path| std::ffi::CString::new(path).map_err(|_| host::__WASI_EINVAL))?;
 
     // Not setting AT_SYMLINK_FOLLOW fails on most filesystems
     let atflags = libc::AT_SYMLINK_FOLLOW;
@@ -432,10 +431,9 @@ pub(crate) fn path_readlink(
         Err(e) => return Err(e),
     };
 
-    let path_cstr = match std::ffi::CString::new(path.to_bytes()) {
-        Ok(path_cstr) => path_cstr,
-        Err(_) => return Err(host::__WASI_EINVAL),
-    };
+    let path_cstr = path
+        .to_bytes()
+        .and_then(|path| std::ffi::CString::new(path).map_err(|_| host::__WASI_EINVAL))?;
 
     // Linux requires that the buffer size is positive, whereas POSIX does not.
     // Use a fake buffer to store the results if the size is zero.
@@ -485,14 +483,14 @@ pub(crate) fn path_rename(
         Ok((dir, path)) => (dir, path),
         Err(e) => return Err(e),
     };
-    let old_path_cstr = match std::ffi::CString::new(old_path.to_bytes()) {
-        Ok(old_path_cstr) => old_path_cstr,
-        Err(_) => return Err(host::__WASI_EINVAL),
-    };
-    let new_path_cstr = match std::ffi::CString::new(new_path.to_bytes()) {
-        Ok(new_path_cstr) => new_path_cstr,
-        Err(_) => return Err(host::__WASI_EINVAL),
-    };
+
+    let old_path_cstr = old_path
+        .to_bytes()
+        .and_then(|path| std::ffi::CString::new(path).map_err(|_| host::__WASI_EINVAL))?;
+    let new_path_cstr = new_path
+        .to_bytes()
+        .and_then(|path| std::ffi::CString::new(path).map_err(|_| host::__WASI_EINVAL))?;
+
     let res = unsafe {
         renameat(
             old_dir.as_raw_fd(),
@@ -661,10 +659,11 @@ pub(crate) fn path_filestat_set_times(
     };
     let ts_mtime = *TimeSpec::nanoseconds(st_mtim as i64).as_ref();
     let times = [ts_atime, ts_mtime];
-    let path_cstr = match std::ffi::CString::new(path.to_bytes()) {
-        Ok(path_cstr) => path_cstr,
-        Err(_) => return Err(host::__WASI_EINVAL),
-    };
+
+    let path_cstr = path
+        .to_bytes()
+        .and_then(|path| std::ffi::CString::new(path).map_err(|_| host::__WASI_EINVAL))?;
+
     let res =
         unsafe { libc::utimensat(dir.as_raw_fd(), path_cstr.as_ptr(), times.as_ptr(), atflags) };
     if res != 0 {
@@ -687,14 +686,13 @@ pub(crate) fn path_symlink(
         Ok((dir, path)) => (dir, path),
         Err(e) => return Err(e),
     };
-    let old_path_cstr = match std::ffi::CString::new(old_path.to_bytes()) {
-        Ok(old_path_cstr) => old_path_cstr,
-        Err(_) => return Err(host::__WASI_EINVAL),
-    };
-    let new_path_cstr = match std::ffi::CString::new(new_path.to_bytes()) {
-        Ok(new_path_cstr) => new_path_cstr,
-        Err(_) => return Err(host::__WASI_EINVAL),
-    };
+    let old_path_cstr = old_path
+        .to_bytes()
+        .and_then(|path| std::ffi::CString::new(path).map_err(|_| host::__WASI_EINVAL))?;
+    let new_path_cstr = new_path
+        .to_bytes()
+        .and_then(|path| std::ffi::CString::new(path).map_err(|_| host::__WASI_EINVAL))?;
+
     let res = unsafe {
         symlinkat(
             old_path_cstr.as_ptr(),
@@ -722,10 +720,11 @@ pub(crate) fn path_unlink_file(
         Ok((dir, path)) => (dir, path),
         Err(e) => return Err(e),
     };
-    let path_cstr = match std::ffi::CString::new(path.to_bytes()) {
-        Ok(path_cstr) => path_cstr,
-        Err(_) => return Err(host::__WASI_EINVAL),
-    };
+
+    let path_cstr = path
+        .to_bytes()
+        .and_then(|path| std::ffi::CString::new(path).map_err(|_| host::__WASI_EINVAL))?;
+
     // nix doesn't expose unlinkat() yet
     match unsafe { unlinkat(dir.as_raw_fd(), path_cstr.as_ptr(), 0) } {
         0 => Ok(()),
@@ -775,10 +774,11 @@ pub(crate) fn path_remove_directory(
         Ok((dir, path)) => (dir, path),
         Err(e) => return Err(e),
     };
-    let path_cstr = match std::ffi::CString::new(path.to_bytes()) {
-        Ok(path_cstr) => path_cstr,
-        Err(_) => return Err(host::__WASI_EINVAL),
-    };
+
+    let path_cstr = path
+        .to_bytes()
+        .and_then(|path| std::ffi::CString::new(path).map_err(|_| host::__WASI_EINVAL))?;
+
     // nix doesn't expose unlinkat() yet
     match unsafe { unlinkat(dir.as_raw_fd(), path_cstr.as_ptr(), AT_REMOVEDIR) } {
         0 => Ok(()),

@@ -3,11 +3,10 @@
 use super::fs_helpers::*;
 use crate::ctx::WasiCtx;
 use crate::fdentry::FdEntry;
-use crate::host;
+use crate::host::{self, RawString};
 use crate::sys::errno_from_host;
 use crate::sys::fdentry_impl::determine_type_rights;
-use crate::sys::host_impl::{self, RawString};
-
+use crate::sys::host_impl::{self, RawStringExt};
 use std::fs::File;
 use std::io::{self, Seek, SeekFrom};
 use std::os::windows::fs::FileExt;

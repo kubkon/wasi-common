@@ -4,6 +4,7 @@
 #![allow(non_camel_case_types)]
 #![allow(non_snake_case)]
 
+use std::ffi::{OsStr, OsString};
 use std::{io, slice};
 
 pub type void = ::std::os::raw::c_void;
@@ -493,6 +494,86 @@ pub unsafe fn iovec_to_host<'a>(iovec: &'a __wasi_iovec_t) -> io::IoSlice<'a> {
 pub unsafe fn iovec_to_host_mut<'a>(iovec: &'a mut __wasi_iovec_t) -> io::IoSliceMut<'a> {
     let slice = slice::from_raw_parts_mut(iovec.buf as *mut u8, iovec.buf_len);
     io::IoSliceMut::new(slice)
+}
+
+/// A trait for viewing representations from host types
+#[doc(hidden)]
+pub(crate) trait AsInner<Inner: ?Sized> {
+    fn as_inner(&self) -> &Inner;
+}
+
+/// A trait for viewing representations from host types
+#[doc(hidden)]
+pub(crate) trait AsInnerMut<Inner: ?Sized> {
+    fn as_inner_mut(&mut self) -> &mut Inner;
+}
+
+/// A trait for extracting representations from host types
+#[doc(hidden)]
+pub(crate) trait IntoInner<Inner> {
+    fn into_inner(self) -> Inner;
+}
+
+/// A trait for creating representations from host types
+#[doc(hidden)]
+pub(crate) trait FromInner<Inner> {
+    fn from_inner(inner: Inner) -> Self;
+}
+
+/// A wrapper to a host-native string
+///
+/// It wraps `OsString` host-specific extensions
+/// enabling a common interface between different hosts for
+/// WASI raw string manipulation.
+#[derive(Debug, Clone)]
+pub struct RawString {
+    s: OsString,
+}
+
+impl RawString {
+    pub fn new(s: OsString) -> Self {
+        Self { s }
+    }
+
+    pub fn push<T: AsRef<OsStr>>(&mut self, s: T) {
+        self.s.push(s)
+    }
+}
+
+impl AsInner<OsString> for RawString {
+    fn as_inner(&self) -> &OsString {
+        &self.s
+    }
+}
+
+impl AsInnerMut<OsString> for RawString {
+    fn as_inner_mut(&mut self) -> &mut OsString {
+        &mut self.s
+    }
+}
+
+impl IntoInner<OsString> for RawString {
+    fn into_inner(self) -> OsString {
+        self.s
+    }
+}
+
+impl FromInner<OsString> for RawString {
+    fn from_inner(inner: OsString) -> Self {
+        Self::new(inner)
+    }
+}
+
+impl AsRef<OsStr> for RawString {
+    fn as_ref(&self) -> &OsStr {
+        &self.s
+    }
+}
+
+impl From<&OsStr> for RawString {
+    fn from(os_str: &OsStr) -> Self {
+        Self::new(os_str.to_owned())
+    }
 }
 
 #[cfg(test)]

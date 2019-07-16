@@ -3,10 +3,9 @@
 
 use crate::ctx::WasiCtx;
 use crate::fdentry::Descriptor;
-use crate::host;
+use crate::host::{self, RawString};
 use crate::sys::errno_from_host;
-use crate::sys::host_impl::{self, RawString};
-
+use crate::sys::host_impl::{self, RawStringExt};
 use std::ffi::OsStr;
 use std::fs::File;
 use std::os::windows::prelude::{AsRawHandle, FromRawHandle};
@@ -22,7 +21,7 @@ pub fn path_get(
     needed_inheriting: host::__wasi_rights_t,
     needs_final_component: bool,
 ) -> Result<(File, RawString), host::__wasi_errno_t> {
-    if path.contains(&b'\0') {
+    if path.contains(&b'\0')? {
         // if contains NUL, return EILSEQ
         return Err(host::__WASI_EILSEQ);
     }
@@ -50,7 +49,7 @@ pub fn path_get(
         match path_stack.pop() {
             Some(cur_path) => {
                 // dbg!(&cur_path);
-                let ends_with_slash = cur_path.ends_with(b"/");
+                let ends_with_slash = cur_path.ends_with(b"/")?;
                 let mut components = Path::new(&cur_path).components();
                 let head = match components.next() {
                     None => return Err(host::__WASI_ENOENT),

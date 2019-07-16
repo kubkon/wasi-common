@@ -3,9 +3,9 @@
 
 use crate::ctx::WasiCtx;
 use crate::fdentry::Descriptor;
-use crate::host;
+use crate::host::{self, RawString};
 use crate::sys::errno_from_host;
-use crate::sys::host_impl::{self, RawString};
+use crate::sys::host_impl::{self, RawStringExt};
 
 use nix::libc::{self, c_long};
 use std::ffi::OsStr;
@@ -26,7 +26,7 @@ pub fn path_get(
 ) -> Result<(File, RawString), host::__wasi_errno_t> {
     const MAX_SYMLINK_EXPANSIONS: usize = 128;
 
-    if path.contains(&b'\0') {
+    if path.contains(&b'\0')? {
         // if contains NUL, return EILSEQ
         return Err(host::__WASI_EILSEQ);
     }
@@ -60,7 +60,7 @@ pub fn path_get(
             Some(cur_path) => {
                 // eprintln!("cur_path = {:?}", cur_path);
 
-                let ends_with_slash = cur_path.ends_with(b"/");
+                let ends_with_slash = cur_path.ends_with(b"/")?;
                 let mut components = Path::new(&cur_path).components();
                 let head = match components.next() {
                     None => return Err(host::__WASI_ENOENT),
@@ -125,7 +125,7 @@ pub fn path_get(
                                                 return Err(host::__WASI_ELOOP);
                                             }
 
-                                            if head.ends_with(b"/") {
+                                            if head.ends_with(b"/")? {
                                                 link_path.push("/");
                                             }
 
@@ -156,7 +156,7 @@ pub fn path_get(
                                         return Err(host::__WASI_ELOOP);
                                     }
 
-                                    if head.ends_with(b"/") {
+                                    if head.ends_with(b"/")? {
                                         link_path.push("/");
                                     }
 
