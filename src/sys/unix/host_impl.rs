@@ -2,13 +2,9 @@
 #![allow(non_camel_case_types)]
 #![allow(non_snake_case)]
 #![allow(dead_code)]
-use crate::host::{self, AsInner, FromInner, RawString};
-use crate::memory;
-use crate::wasm32;
-
+use crate::{host, memory, wasm32};
 use std::ffi::OsStr;
 use std::os::unix::prelude::OsStrExt;
-use std::str;
 
 pub fn errno_from_nix(errno: nix::errno::Errno) -> host::__wasi_errno_t {
     match errno {
@@ -253,40 +249,10 @@ pub fn dirent_from_host(
     Ok(entry)
 }
 
-pub(crate) trait RawStringExt {
-    fn from_bytes(slice: &[u8]) -> Result<RawString, host::__wasi_errno_t>;
-    fn to_bytes(&self) -> Result<Vec<u8>, host::__wasi_errno_t>;
-    fn contains(&self, c: &u8) -> Result<bool, host::__wasi_errno_t>;
-    fn ends_with(&self, c: &[u8]) -> Result<bool, host::__wasi_errno_t>;
-}
-
-impl RawStringExt for RawString {
-    fn from_bytes(slice: &[u8]) -> Result<RawString, host::__wasi_errno_t> {
-        to_utf8(slice).map(|s| FromInner::from_inner(OsStr::from_bytes(s).to_owned()))
-    }
-
-    fn to_bytes(&self) -> Result<Vec<u8>, host::__wasi_errno_t> {
-        self.as_inner()
-            .to_str()
-            .map(|s| s.as_bytes().to_owned())
-            .ok_or(host::__WASI_EILSEQ)
-    }
-
-    fn contains(&self, c: &u8) -> Result<bool, host::__wasi_errno_t> {
-        let c = &[*c];
-        let u8s = to_utf8(c)?;
-        u8s.last()
-            .map(|c| self.as_inner().as_bytes().contains(c))
-            .ok_or(host::__WASI_EILSEQ)
-    }
-
-    fn ends_with(&self, c: &[u8]) -> Result<bool, host::__wasi_errno_t> {
-        to_utf8(c).map(|c| self.as_inner().as_bytes().ends_with(c))
-    }
-}
-
-fn to_utf8(slice: &[u8]) -> Result<&[u8], host::__wasi_errno_t> {
-    str::from_utf8(slice)
-        .map(|s| s.as_bytes())
-        .map_err(|_| host::__WASI_EILSEQ)
+/// Creates owned WASI path from OS string.
+///
+/// NB WASI spec requires OS string to be valid UTF-8. Otherwise,
+/// `__WASI_EILSEQ` error is returned.
+pub fn path_from_host<S: AsRef<OsStr>>(s: S) -> Result<String, host::__wasi_errno_t> {
+    host::path_from_slice(s.as_ref().as_bytes()).map(String::from)
 }

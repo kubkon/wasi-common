@@ -2,11 +2,9 @@
 use super::return_enc_errno;
 use crate::ctx::WasiCtx;
 use crate::fdentry::Descriptor;
-use crate::host::{self, RawString};
 use crate::memory::*;
-use crate::sys::host_impl::RawStringExt;
-use crate::sys::{errno_from_host, hostcalls_impl};
-use crate::wasm32;
+use crate::sys::{errno_from_host, host_impl, hostcalls_impl};
+use crate::{host, wasm32};
 use log::trace;
 use std::convert::identity;
 use std::io::{self, Read, Write};
@@ -594,15 +592,15 @@ pub fn path_create_directory(
     );
 
     let dirfd = dec_fd(dirfd);
-    let path = match dec_slice_of::<u8>(memory, path_ptr, path_len).and_then(RawString::from_bytes)
+    let path = match dec_slice_of::<u8>(memory, path_ptr, path_len).and_then(host::path_from_slice)
     {
         Ok(path) => path,
         Err(e) => return return_enc_errno(e),
     };
 
-    trace!("     | (path_ptr,path_len)={:?}", path);
+    trace!("     | (path_ptr,path_len)='{}'", path);
 
-    let ret = match hostcalls_impl::path_create_directory(wasi_ctx, dirfd, &path) {
+    let ret = match hostcalls_impl::path_create_directory(wasi_ctx, dirfd, path) {
         Ok(()) => host::__WASI_ESUCCESS,
         Err(e) => e,
     };
@@ -636,27 +634,27 @@ pub fn path_link(
     let old_dirfd = dec_fd(old_dirfd);
     let new_dirfd = dec_fd(new_dirfd);
     let old_path = match dec_slice_of::<u8>(memory, old_path_ptr, old_path_len)
-        .and_then(RawString::from_bytes)
+        .and_then(host::path_from_slice)
     {
         Ok(path) => path,
         Err(e) => return return_enc_errno(e),
     };
     let new_path = match dec_slice_of::<u8>(memory, new_path_ptr, new_path_len)
-        .and_then(RawString::from_bytes)
+        .and_then(host::path_from_slice)
     {
         Ok(path) => path,
         Err(e) => return return_enc_errno(e),
     };
 
-    trace!("     | (old_path_ptr,old_path_len)={:?}", old_path);
-    trace!("     | (new_path_ptr,new_path_len)={:?}", new_path);
+    trace!("     | (old_path_ptr,old_path_len)='{}'", old_path);
+    trace!("     | (new_path_ptr,new_path_len)='{}'", new_path);
 
     let ret = match hostcalls_impl::path_link(
         wasi_ctx,
         old_dirfd,
         new_dirfd,
-        &old_path,
-        &new_path,
+        old_path,
+        new_path,
         host::__WASI_RIGHT_PATH_LINK_SOURCE,
         host::__WASI_RIGHT_PATH_LINK_TARGET,
     ) {
@@ -714,19 +712,19 @@ pub fn path_open(
     let needed_base = host::__WASI_RIGHT_PATH_OPEN;
     let needed_inheriting = fs_rights_base | fs_rights_inheriting;
 
-    let path = match dec_slice_of::<u8>(memory, path_ptr, path_len).and_then(RawString::from_bytes)
+    let path = match dec_slice_of::<u8>(memory, path_ptr, path_len).and_then(host::path_from_slice)
     {
         Ok(path) => path,
         Err(e) => return return_enc_errno(e),
     };
 
-    trace!("     | (path_ptr,path_len)={:?}", path);
+    trace!("     | (path_ptr,path_len)='{}'", path);
 
     let ret = match hostcalls_impl::path_open(
         wasi_ctx,
         dirfd,
         dirflags,
-        &path,
+        path,
         oflags,
         read,
         write,
@@ -836,13 +834,12 @@ pub fn path_readlink(
         Err(e) => return return_enc_errno(e),
     };
     let dirfd = dec_fd(dirfd);
-    let path = match dec_slice_of::<u8>(memory, path_ptr, path_len).and_then(RawString::from_bytes)
-    {
+    let path = match dec_slice_of::<u8>(memory, path_ptr, path_len).and_then(host::path_from_vec) {
         Ok(path) => path,
         Err(e) => return return_enc_errno(e),
     };
 
-    trace!("     | (path_ptr,path_len)={:?}", path);
+    trace!("     | (path_ptr,path_len)='{}'", &path);
 
     let mut buf = match dec_slice_of_mut::<u8>(memory, buf_ptr, buf_len) {
         Ok(slice) => slice,
@@ -893,26 +890,26 @@ pub fn path_rename(
     let old_dirfd = dec_fd(old_dirfd);
     let new_dirfd = dec_fd(new_dirfd);
     let old_path = match dec_slice_of::<u8>(memory, old_path_ptr, old_path_len)
-        .and_then(RawString::from_bytes)
+        .and_then(host::path_from_slice)
     {
         Ok(path) => path,
         Err(e) => return return_enc_errno(e),
     };
     let new_path = match dec_slice_of::<u8>(memory, new_path_ptr, new_path_len)
-        .and_then(RawString::from_bytes)
+        .and_then(host::path_from_slice)
     {
         Ok(path) => path,
         Err(e) => return return_enc_errno(e),
     };
 
-    trace!("     | (old_path_ptr,old_path_len)={:?}", old_path);
-    trace!("     | (new_path_ptr,new_path_len)={:?}", new_path);
+    trace!("     | (old_path_ptr,old_path_len)='{}'", old_path);
+    trace!("     | (new_path_ptr,new_path_len)='{}'", new_path);
 
     let old_rights = host::__WASI_RIGHT_PATH_RENAME_SOURCE;
     let new_rights = host::__WASI_RIGHT_PATH_RENAME_TARGET;
 
     let ret = match hostcalls_impl::path_rename(
-        wasi_ctx, old_dirfd, &old_path, old_rights, new_dirfd, &new_path, new_rights,
+        wasi_ctx, old_dirfd, old_path, old_rights, new_dirfd, new_path, new_rights,
     ) {
         Ok(()) => host::__WASI_ESUCCESS,
         Err(e) => e,
@@ -1037,15 +1034,15 @@ pub fn path_filestat_get(
 
     let dirfd = dec_fd(dirfd);
     let dirflags = dec_lookupflags(dirflags);
-    let path = match dec_slice_of::<u8>(memory, path_ptr, path_len).and_then(RawString::from_bytes)
+    let path = match dec_slice_of::<u8>(memory, path_ptr, path_len).and_then(host::path_from_slice)
     {
         Ok(path) => path,
         Err(e) => return return_enc_errno(e),
     };
 
-    trace!("     | (path_ptr,path_len)={:?}", path);
+    trace!("     | (path_ptr,path_len)='{}'", path);
 
-    let host_filestat = match hostcalls_impl::path_filestat_get(wasi_ctx, dirfd, dirflags, &path) {
+    let host_filestat = match hostcalls_impl::path_filestat_get(wasi_ctx, dirfd, dirflags, path) {
         Ok(host_filestat) => host_filestat,
         Err(e) => return return_enc_errno(e),
     };
@@ -1084,13 +1081,13 @@ pub fn path_filestat_set_times(
 
     let dirfd = dec_fd(dirfd);
     let dirflags = dec_lookupflags(dirflags);
-    let path = match dec_slice_of::<u8>(memory, path_ptr, path_len).and_then(RawString::from_bytes)
+    let path = match dec_slice_of::<u8>(memory, path_ptr, path_len).and_then(host::path_from_slice)
     {
         Ok(path) => path,
         Err(e) => return return_enc_errno(e),
     };
 
-    trace!("     | (path_ptr,path_len)={:?}", path);
+    trace!("     | (path_ptr,path_len)='{}'", path);
 
     let rights = host::__WASI_RIGHT_PATH_FILESTAT_SET_TIMES;
     let st_atim = dec_timestamp(st_atim);
@@ -1098,7 +1095,7 @@ pub fn path_filestat_set_times(
     let fst_flags = dec_fstflags(fst_flags);
 
     let ret = match hostcalls_impl::path_filestat_set_times(
-        wasi_ctx, dirfd, dirflags, &path, rights, st_atim, st_mtim, fst_flags,
+        wasi_ctx, dirfd, dirflags, path, rights, st_atim, st_mtim, fst_flags,
     ) {
         Ok(()) => host::__WASI_ESUCCESS,
         Err(e) => e,
@@ -1128,24 +1125,24 @@ pub fn path_symlink(
 
     let dirfd = dec_fd(dirfd);
     let old_path = match dec_slice_of::<u8>(memory, old_path_ptr, old_path_len)
-        .and_then(RawString::from_bytes)
+        .and_then(host::path_from_slice)
     {
         Ok(path) => path,
         Err(e) => return return_enc_errno(e),
     };
     let new_path = match dec_slice_of::<u8>(memory, new_path_ptr, new_path_len)
-        .and_then(RawString::from_bytes)
+        .and_then(host::path_from_slice)
     {
         Ok(path) => path,
         Err(e) => return return_enc_errno(e),
     };
 
-    trace!("     | (old_path_ptr,old_path_len)={:?}", old_path);
-    trace!("     | (new_path_ptr,new_path_len)={:?}", new_path);
+    trace!("     | (old_path_ptr,old_path_len)='{}'", old_path);
+    trace!("     | (new_path_ptr,new_path_len)='{}'", new_path);
 
     let rights = host::__WASI_RIGHT_PATH_SYMLINK;
 
-    let ret = match hostcalls_impl::path_symlink(wasi_ctx, dirfd, rights, &old_path, &new_path) {
+    let ret = match hostcalls_impl::path_symlink(wasi_ctx, dirfd, rights, old_path, new_path) {
         Ok(()) => host::__WASI_ESUCCESS,
         Err(e) => e,
     };
@@ -1169,18 +1166,18 @@ pub fn path_unlink_file(
     );
 
     let dirfd = dec_fd(dirfd);
-    let path = match dec_slice_of::<u8>(memory, path_ptr, path_len).and_then(RawString::from_bytes)
+    let path = match dec_slice_of::<u8>(memory, path_ptr, path_len).and_then(host::path_from_slice)
     {
         Ok(path) => path,
         Err(e) => return return_enc_errno(e),
     };
 
-    trace!("     | (path_ptr,path_len)={:?}", path);
+    trace!("     | (path_ptr,path_len)='{}'", path);
 
     let ret = match hostcalls_impl::path_unlink_file(
         wasi_ctx,
         dirfd,
-        &path,
+        path,
         host::__WASI_RIGHT_PATH_UNLINK_FILE,
     ) {
         Ok(()) => host::__WASI_ESUCCESS,
@@ -1206,17 +1203,17 @@ pub fn path_remove_directory(
     );
 
     let dirfd = dec_fd(dirfd);
-    let path = match dec_slice_of::<u8>(memory, path_ptr, path_len).and_then(RawString::from_bytes)
+    let path = match dec_slice_of::<u8>(memory, path_ptr, path_len).and_then(host::path_from_slice)
     {
         Ok(path) => path,
         Err(e) => return return_enc_errno(e),
     };
 
-    trace!("     | (path_ptr,path_len)={:?}", path);
+    trace!("     | (path_ptr,path_len)='{}'", path);
 
     let rights = host::__WASI_RIGHT_PATH_REMOVE_DIRECTORY;
 
-    let ret = match hostcalls_impl::path_remove_directory(wasi_ctx, dirfd, &path, rights) {
+    let ret = match hostcalls_impl::path_remove_directory(wasi_ctx, dirfd, path, rights) {
         Ok(()) => host::__WASI_ESUCCESS,
         Err(e) => e,
     };
@@ -1246,8 +1243,8 @@ pub fn fd_prestat_get(
                     return return_enc_errno(host::__WASI_ENOTDIR);
                 }
 
-                let raw_bytes = match RawString::from(po_path.as_ref()).to_bytes() {
-                    Ok(raw_bytes) => raw_bytes,
+                let path = match host_impl::path_from_host(po_path.as_os_str()) {
+                    Ok(path) => path,
                     Err(e) => return return_enc_errno(e),
                 };
 
@@ -1258,7 +1255,7 @@ pub fn fd_prestat_get(
                         pr_type: host::__WASI_PREOPENTYPE_DIR,
                         u: host::__wasi_prestat_t___wasi_prestat_u {
                             dir: host::__wasi_prestat_t___wasi_prestat_u___wasi_prestat_u_dir_t {
-                                pr_name_len: raw_bytes.len(),
+                                pr_name_len: path.len(),
                             },
                         },
                     },
@@ -1299,18 +1296,18 @@ pub fn fd_prestat_dir_name(
                     return return_enc_errno(host::__WASI_ENOTDIR);
                 }
 
-                let raw_bytes = match RawString::from(po_path.as_ref()).to_bytes() {
-                    Ok(raw_bytes) => raw_bytes,
+                let path = match host_impl::path_from_host(po_path.as_os_str()) {
+                    Ok(path) => path,
                     Err(e) => return return_enc_errno(e),
                 };
 
-                if raw_bytes.len() > dec_usize(path_len) {
+                if path.len() > dec_usize(path_len) {
                     return return_enc_errno(host::__WASI_ENAMETOOLONG);
                 }
 
-                trace!("     | (path_ptr,path_len)={:?}", po_path);
+                trace!("     | (path_ptr,path_len)='{}'", path);
 
-                enc_slice_of(memory, &raw_bytes, path_ptr)
+                enc_slice_of(memory, path.as_bytes(), path_ptr)
                     .map(|_| host::__WASI_ESUCCESS)
                     .unwrap_or_else(identity)
             } else {

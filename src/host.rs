@@ -4,8 +4,7 @@
 #![allow(non_camel_case_types)]
 #![allow(non_snake_case)]
 
-use std::ffi::{OsStr, OsString};
-use std::{io, slice};
+use std::{io, slice, str};
 
 pub type void = ::std::os::raw::c_void;
 
@@ -496,84 +495,20 @@ pub unsafe fn iovec_to_host_mut<'a>(iovec: &'a mut __wasi_iovec_t) -> io::IoSlic
     io::IoSliceMut::new(slice)
 }
 
-/// A trait for viewing representations from host types
-#[doc(hidden)]
-pub(crate) trait AsInner<Inner: ?Sized> {
-    fn as_inner(&self) -> &Inner;
-}
-
-/// A trait for viewing representations from host types
-#[doc(hidden)]
-pub(crate) trait AsInnerMut<Inner: ?Sized> {
-    fn as_inner_mut(&mut self) -> &mut Inner;
-}
-
-/// A trait for extracting representations from host types
-#[doc(hidden)]
-pub(crate) trait IntoInner<Inner> {
-    fn into_inner(self) -> Inner;
-}
-
-/// A trait for creating representations from host types
-#[doc(hidden)]
-pub(crate) trait FromInner<Inner> {
-    fn from_inner(inner: Inner) -> Self;
-}
-
-/// A wrapper to a host-native string
+/// Creates not-owned WASI path from byte slice.
 ///
-/// It wraps `OsString` host-specific extensions
-/// enabling a common interface between different hosts for
-/// WASI raw string manipulation.
-#[derive(Debug, Clone)]
-pub struct RawString {
-    s: OsString,
+/// NB WASI spec requires bytes to be valid UTF-8. Otherwise,
+/// `__WASI_EILSEQ` error is returned.
+pub fn path_from_slice<'a>(s: &'a [u8]) -> Result<&'a str, __wasi_errno_t> {
+    str::from_utf8(s).map_err(|_| __WASI_EILSEQ)
 }
 
-impl RawString {
-    pub fn new(s: OsString) -> Self {
-        Self { s }
-    }
-
-    pub fn push<T: AsRef<OsStr>>(&mut self, s: T) {
-        self.s.push(s)
-    }
-}
-
-impl AsInner<OsString> for RawString {
-    fn as_inner(&self) -> &OsString {
-        &self.s
-    }
-}
-
-impl AsInnerMut<OsString> for RawString {
-    fn as_inner_mut(&mut self) -> &mut OsString {
-        &mut self.s
-    }
-}
-
-impl IntoInner<OsString> for RawString {
-    fn into_inner(self) -> OsString {
-        self.s
-    }
-}
-
-impl FromInner<OsString> for RawString {
-    fn from_inner(inner: OsString) -> Self {
-        Self::new(inner)
-    }
-}
-
-impl AsRef<OsStr> for RawString {
-    fn as_ref(&self) -> &OsStr {
-        &self.s
-    }
-}
-
-impl From<&OsStr> for RawString {
-    fn from(os_str: &OsStr) -> Self {
-        Self::new(os_str.to_owned())
-    }
+/// Creates owned WASI path from byte vector.
+///
+/// NB WASI spec requires bytes to be valid UTF-8. Otherwise,
+/// `__WASI_EILSEQ` error is returned.
+pub fn path_from_vec<S: Into<Vec<u8>>>(s: S) -> Result<String, __wasi_errno_t> {
+    String::from_utf8(s.into()).map_err(|_| __WASI_EILSEQ)
 }
 
 #[cfg(test)]
