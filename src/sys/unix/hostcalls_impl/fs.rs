@@ -1,10 +1,7 @@
 #![allow(non_camel_case_types)]
 #![allow(unused_unsafe)]
 use super::fs_helpers::*;
-use crate::ctx::WasiCtx;
-use crate::fdentry::FdEntry;
 use crate::helpers::systemtime_to_timestamp;
-use crate::sys::fdentry_impl::determine_type_rights;
 use crate::sys::host_impl;
 use crate::sys::{errno_from_host, errno_from_ioerror};
 use crate::{host, wasm32, Result};
@@ -88,28 +85,23 @@ pub(crate) fn fd_advise(
     Ok(())
 }
 
-pub(crate) fn path_create_directory(dirfd: &File, path: &str) -> Result<()> {
+pub(crate) fn path_create_directory(dirfd: File, path: String) -> Result<()> {
     use nix::libc::mkdirat;
-
-    let (dir, path) = path_get(dirfd, 0, path, false)?;
     let path_cstr = CString::new(path.as_bytes()).map_err(|_| host::__WASI_EILSEQ)?;
-
     // nix doesn't expose mkdirat() yet
-    match unsafe { mkdirat(dir.as_raw_fd(), path_cstr.as_ptr(), 0o777) } {
+    match unsafe { mkdirat(dirfd.as_raw_fd(), path_cstr.as_ptr(), 0o777) } {
         0 => Ok(()),
         _ => Err(host_impl::errno_from_nix(nix::errno::Errno::last())),
     }
 }
 
 pub(crate) fn path_link(
-    old_dirfd: &File,
-    new_dirfd: &File,
-    old_path: &str,
-    new_path: &str,
+    old_dirfd: File,
+    new_dirfd: File,
+    old_path: String,
+    new_path: String,
 ) -> Result<()> {
     use nix::libc::linkat;
-    let (old_dir, old_path) = path_get(old_dirfd, 0, old_path, false)?;
-    let (new_dir, new_path) = path_get(new_dirfd, 0, new_path, false)?;
     let old_path_cstr = CString::new(old_path.as_bytes()).map_err(|_| host::__WASI_EILSEQ)?;
     let new_path_cstr = CString::new(new_path.as_bytes()).map_err(|_| host::__WASI_EILSEQ)?;
 
@@ -117,9 +109,9 @@ pub(crate) fn path_link(
     let atflags = libc::AT_SYMLINK_FOLLOW;
     let res = unsafe {
         linkat(
-            old_dir.as_raw_fd(),
+            old_dirfd.as_raw_fd(),
             old_path_cstr.as_ptr(),
-            new_dir.as_raw_fd(),
+            new_dirfd.as_raw_fd(),
             new_path_cstr.as_ptr(),
             atflags,
         )
@@ -132,17 +124,13 @@ pub(crate) fn path_link(
 }
 
 pub(crate) fn path_open(
-    ctx: &WasiCtx,
-    dirfd: host::__wasi_fd_t,
-    dirflags: host::__wasi_lookupflags_t,
-    path: &str,
-    oflags: host::__wasi_oflags_t,
+    dirfd: File,
+    path: String,
     read: bool,
     write: bool,
-    mut needed_base: host::__wasi_rights_t,
-    mut needed_inheriting: host::__wasi_rights_t,
+    oflags: host::__wasi_oflags_t,
     fs_flags: host::__wasi_fdflags_t,
-) -> Result<FdEntry> {
+) -> Result<File> {
     use nix::errno::Errno;
     use nix::fcntl::{openat, AtFlags, OFlag};
     use nix::sys::stat::{fstatat, Mode, SFlag};
@@ -159,33 +147,16 @@ pub(crate) fn path_open(
     nix_all_oflags.insert(OFlag::O_NOFOLLOW);
 
     // convert open flags
-    let nix_oflags = host_impl::nix_from_oflags(oflags);
-    nix_all_oflags.insert(nix_oflags);
-    if nix_all_oflags.contains(OFlag::O_CREAT) {
-        needed_base |= host::__WASI_RIGHT_PATH_CREATE_FILE;
-    }
-    if nix_all_oflags.contains(OFlag::O_TRUNC) {
-        needed_base |= host::__WASI_RIGHT_PATH_FILESTAT_SET_SIZE;
-    }
+    nix_all_oflags.insert(host_impl::nix_from_oflags(oflags));
 
     // convert file descriptor flags
     nix_all_oflags.insert(host_impl::nix_from_fdflags(fs_flags));
-    if nix_all_oflags.contains(OFlag::O_DSYNC) {
-        needed_inheriting |= host::__WASI_RIGHT_FD_DATASYNC;
-    }
-    if nix_all_oflags.intersects(host_impl::O_RSYNC | OFlag::O_SYNC) {
-        needed_inheriting |= host::__WASI_RIGHT_FD_SYNC;
-    }
-
-    let dirfe = ctx.get_fd_entry(dirfd, needed_base, needed_inheriting)?;
-    let dirfd = dirfe.fd_object.descriptor.as_file()?;
-    let (dir, path) = path_get(dirfd, dirflags, path, nix_oflags.contains(OFlag::O_CREAT))?;
 
     // Call openat. Use mode 0o666 so that we follow whatever the user's
     // umask is, but don't set the executable flag, because it isn't yet
     // meaningful for WASI programs to create executable files.
     let new_fd = match openat(
-        dir.as_raw_fd(),
+        dirfd.as_raw_fd(),
         path.as_str(),
         nix_all_oflags,
         Mode::from_bits_truncate(0o666),
@@ -195,9 +166,11 @@ pub(crate) fn path_open(
             match e.as_errno() {
                 // Linux returns ENXIO instead of EOPNOTSUPP when opening a socket
                 Some(Errno::ENXIO) => {
-                    if let Ok(stat) =
-                        fstatat(dir.as_raw_fd(), path.as_str(), AtFlags::AT_SYMLINK_NOFOLLOW)
-                    {
+                    if let Ok(stat) = fstatat(
+                        dirfd.as_raw_fd(),
+                        path.as_str(),
+                        AtFlags::AT_SYMLINK_NOFOLLOW,
+                    ) {
                         if SFlag::from_bits_truncate(stat.st_mode).contains(SFlag::S_IFSOCK) {
                             return Err(host::__WASI_ENOTSUP);
                         } else {
@@ -212,9 +185,11 @@ pub(crate) fn path_open(
                 Some(Errno::ENOTDIR)
                     if !(nix_all_oflags & (OFlag::O_NOFOLLOW | OFlag::O_DIRECTORY)).is_empty() =>
                 {
-                    if let Ok(stat) =
-                        fstatat(dir.as_raw_fd(), path.as_str(), AtFlags::AT_SYMLINK_NOFOLLOW)
-                    {
+                    if let Ok(stat) = fstatat(
+                        dirfd.as_raw_fd(),
+                        path.as_str(),
+                        AtFlags::AT_SYMLINK_NOFOLLOW,
+                    ) {
                         if SFlag::from_bits_truncate(stat.st_mode).contains(SFlag::S_IFLNK) {
                             return Err(host::__WASI_ELOOP);
                         }
@@ -233,14 +208,7 @@ pub(crate) fn path_open(
     };
 
     // Determine the type of the new file descriptor and which rights contradict with this type
-    let file = unsafe { File::from_raw_fd(new_fd) };
-    determine_type_rights(&file).and_then(|(_ty, max_base, max_inheriting)| {
-        FdEntry::from(file).map(|mut fe| {
-            fe.rights_base &= max_base;
-            fe.rights_inheriting &= max_inheriting;
-            fe
-        })
-    })
+    Ok(unsafe { File::from_raw_fd(new_fd) })
 }
 
 pub(crate) fn fd_readdir(
@@ -297,10 +265,8 @@ pub(crate) fn fd_readdir(
     Ok(host_buf_len - left)
 }
 
-pub(crate) fn path_readlink(dirfd: &File, path: &str, buf: &mut [u8]) -> Result<usize> {
+pub(crate) fn path_readlink(dirfd: File, path: String, buf: &mut [u8]) -> Result<usize> {
     use nix::errno::Errno;
-
-    let (dir, path) = path_get(dirfd, 0, path, false)?;
     let path_cstr = CString::new(path.as_bytes()).map_err(|_| host::__WASI_EILSEQ)?;
 
     // Linux requires that the buffer size is positive, whereas POSIX does not.
@@ -311,7 +277,7 @@ pub(crate) fn path_readlink(dirfd: &File, path: &str, buf: &mut [u8]) -> Result<
     let buf_len = buf.len();
     let len = unsafe {
         libc::readlinkat(
-            dir.as_raw_fd(),
+            dirfd.as_raw_fd(),
             path_cstr.as_ptr() as *const libc::c_char,
             if buf_len == 0 {
                 fakebuf.as_mut_ptr()
@@ -331,23 +297,20 @@ pub(crate) fn path_readlink(dirfd: &File, path: &str, buf: &mut [u8]) -> Result<
 }
 
 pub(crate) fn path_rename(
-    old_dirfd: &File,
-    old_path: &str,
-    new_dirfd: &File,
-    new_path: &str,
+    old_dirfd: File,
+    old_path: String,
+    new_dirfd: File,
+    new_path: String,
 ) -> Result<()> {
     use nix::libc::renameat;
-
-    let (old_dir, old_path) = path_get(old_dirfd, 0, old_path, false)?;
-    let (new_dir, new_path) = path_get(new_dirfd, 0, new_path, false)?;
     let old_path_cstr = CString::new(old_path.as_bytes()).map_err(|_| host::__WASI_EILSEQ)?;
     let new_path_cstr = CString::new(new_path.as_bytes()).map_err(|_| host::__WASI_EILSEQ)?;
 
     let res = unsafe {
         renameat(
-            old_dir.as_raw_fd(),
+            old_dirfd.as_raw_fd(),
             old_path_cstr.as_ptr(),
-            new_dir.as_raw_fd(),
+            new_dirfd.as_raw_fd(),
             new_path_cstr.as_ptr(),
         )
     };
@@ -458,35 +421,33 @@ pub(crate) fn fd_filestat_set_size(fd: &File, st_size: host::__wasi_filesize_t) 
 }
 
 pub(crate) fn path_filestat_get(
-    dirfd: &File,
+    dirfd: File,
     dirflags: host::__wasi_lookupflags_t,
-    path: &str,
+    path: String,
 ) -> Result<host::__wasi_filestat_t> {
     use nix::fcntl::AtFlags;
     use nix::sys::stat::fstatat;
 
-    let (dir, path) = path_get(dirfd, dirflags, path, false)?;
     let atflags = match dirflags {
         0 => AtFlags::empty(),
         _ => AtFlags::AT_SYMLINK_NOFOLLOW,
     };
 
-    let filestat = fstatat(dir.as_raw_fd(), path.as_str(), atflags)
+    let filestat = fstatat(dirfd.as_raw_fd(), path.as_str(), atflags)
         .map_err(|err| host_impl::errno_from_nix(err.as_errno().unwrap()))?;
     host_impl::filestat_from_nix(filestat)
 }
 
 pub(crate) fn path_filestat_set_times(
-    dirfd: &File,
+    dirfd: File,
     dirflags: host::__wasi_lookupflags_t,
-    path: &str,
+    path: String,
     st_atim: host::__wasi_timestamp_t,
     mut st_mtim: host::__wasi_timestamp_t,
     fst_flags: host::__wasi_fstflags_t,
 ) -> Result<()> {
     use nix::sys::time::{TimeSpec, TimeValLike};
 
-    let (dir, path) = path_get(dirfd, dirflags, &path, false)?;
     let atflags = match dirflags {
         wasm32::__WASI_LOOKUP_SYMLINK_FOLLOW => 0,
         _ => libc::AT_SYMLINK_NOFOLLOW,
@@ -521,8 +482,14 @@ pub(crate) fn path_filestat_set_times(
 
     let path_cstr = CString::new(path.as_bytes()).map_err(|_| host::__WASI_EILSEQ)?;
 
-    let res =
-        unsafe { libc::utimensat(dir.as_raw_fd(), path_cstr.as_ptr(), times.as_ptr(), atflags) };
+    let res = unsafe {
+        libc::utimensat(
+            dirfd.as_raw_fd(),
+            path_cstr.as_ptr(),
+            times.as_ptr(),
+            atflags,
+        )
+    };
     if res != 0 {
         Err(host_impl::errno_from_nix(nix::errno::Errno::last()))
     } else {
@@ -530,17 +497,16 @@ pub(crate) fn path_filestat_set_times(
     }
 }
 
-pub(crate) fn path_symlink(dirfd: &File, old_path: &str, new_path: &str) -> Result<()> {
+pub(crate) fn path_symlink(dirfd: File, old_path: &str, new_path: String) -> Result<()> {
     use nix::libc::symlinkat;
 
-    let (dir, new_path) = path_get(dirfd, 0, new_path, false)?;
     let old_path_cstr = CString::new(old_path.as_bytes()).map_err(|_| host::__WASI_EILSEQ)?;
     let new_path_cstr = CString::new(new_path.as_bytes()).map_err(|_| host::__WASI_EILSEQ)?;
 
     let res = unsafe {
         symlinkat(
             old_path_cstr.as_ptr(),
-            dir.as_raw_fd(),
+            dirfd.as_raw_fd(),
             new_path_cstr.as_ptr(),
         )
     };
@@ -551,15 +517,14 @@ pub(crate) fn path_symlink(dirfd: &File, old_path: &str, new_path: &str) -> Resu
     }
 }
 
-pub(crate) fn path_unlink_file(dirfd: &File, path: &str) -> Result<()> {
+pub(crate) fn path_unlink_file(dirfd: File, path: String) -> Result<()> {
     use nix::errno;
     use nix::libc::unlinkat;
 
-    let (dir, path) = path_get(dirfd, 0, path, false)?;
     let path_cstr = CString::new(path.as_bytes()).map_err(|_| host::__WASI_EILSEQ)?;
 
     // nix doesn't expose unlinkat() yet
-    match unsafe { unlinkat(dir.as_raw_fd(), path_cstr.as_ptr(), 0) } {
+    match unsafe { unlinkat(dirfd.as_raw_fd(), path_cstr.as_ptr(), 0) } {
         0 => Ok(()),
         _ => {
             let mut e = errno::Errno::last();
@@ -577,9 +542,11 @@ pub(crate) fn path_unlink_file(dirfd: &File, path: &str) -> Result<()> {
                 use nix::sys::stat::{fstatat, SFlag};
 
                 if e == errno::Errno::EPERM {
-                    if let Ok(stat) =
-                        fstatat(dir.as_raw_fd(), path.as_str(), AtFlags::AT_SYMLINK_NOFOLLOW)
-                    {
+                    if let Ok(stat) = fstatat(
+                        dirfd.as_raw_fd(),
+                        path.as_str(),
+                        AtFlags::AT_SYMLINK_NOFOLLOW,
+                    ) {
                         if SFlag::from_bits_truncate(stat.st_mode).contains(SFlag::S_IFDIR) {
                             e = errno::Errno::EISDIR;
                         }
@@ -594,15 +561,14 @@ pub(crate) fn path_unlink_file(dirfd: &File, path: &str) -> Result<()> {
     }
 }
 
-pub(crate) fn path_remove_directory(dirfd: &File, path: &str) -> Result<()> {
+pub(crate) fn path_remove_directory(dirfd: File, path: String) -> Result<()> {
     use nix::errno;
     use nix::libc::{unlinkat, AT_REMOVEDIR};
 
-    let (dir, path) = path_get(dirfd, 0, path, false)?;
     let path_cstr = CString::new(path.as_bytes()).map_err(|_| host::__WASI_EILSEQ)?;
 
     // nix doesn't expose unlinkat() yet
-    match unsafe { unlinkat(dir.as_raw_fd(), path_cstr.as_ptr(), AT_REMOVEDIR) } {
+    match unsafe { unlinkat(dirfd.as_raw_fd(), path_cstr.as_ptr(), AT_REMOVEDIR) } {
         0 => Ok(()),
         _ => Err(host_impl::errno_from_nix(errno::Errno::last())),
     }

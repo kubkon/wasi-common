@@ -71,31 +71,27 @@ pub(crate) fn fd_advise(
     unimplemented!("fd_advise")
 }
 
-pub(crate) fn path_create_directory(dirfd: &File, path: &str) -> Result<()> {
+pub(crate) fn path_create_directory(dirfd: File, path: String) -> Result<()> {
     unimplemented!("path_create_directory")
 }
 
 pub(crate) fn path_link(
-    old_dirfd: &File,
-    new_dirfd: &File,
-    old_path: &str,
-    new_path: &str,
+    old_dirfd: File,
+    new_dirfd: File,
+    old_path: String,
+    new_path: String,
 ) -> Result<()> {
     unimplemented!("path_link")
 }
 
 pub(crate) fn path_open(
-    ctx: &WasiCtx,
-    dirfd: host::__wasi_fd_t,
-    dirflags: host::__wasi_lookupflags_t,
-    path: &str,
-    oflags: host::__wasi_oflags_t,
+    dirfd: File,
+    path: String,
     read: bool,
     write: bool,
-    mut needed_base: host::__wasi_rights_t,
-    mut needed_inheriting: host::__wasi_rights_t,
+    oflags: host::__wasi_oflags_t,
     fs_flags: host::__wasi_fdflags_t,
-) -> Result<FdEntry> {
+) -> Result<File> {
     use winx::file::{AccessRight, CreationDisposition, FlagsAndAttributes, ShareMode};
 
     let mut win_rights = AccessRight::READ_CONTROL;
@@ -108,34 +104,14 @@ pub(crate) fn path_open(
 
     // convert open flags
     let (win_create_disp, mut win_flags_attrs) = host_impl::win_from_oflags(oflags);
-    if win_create_disp == CreationDisposition::CREATE_NEW {
-        needed_base |= host::__WASI_RIGHT_PATH_CREATE_FILE;
-    } else if win_create_disp == CreationDisposition::CREATE_ALWAYS {
-        needed_base |= host::__WASI_RIGHT_PATH_CREATE_FILE;
-    } else if win_create_disp == CreationDisposition::TRUNCATE_EXISTING {
-        needed_base |= host::__WASI_RIGHT_PATH_FILESTAT_SET_SIZE;
-    }
 
     // convert file descriptor flags
     let win_fdflags_res = host_impl::win_from_fdflags(fs_flags);
     win_rights.insert(win_fdflags_res.0);
     win_flags_attrs.insert(win_fdflags_res.1);
-    if win_rights.contains(AccessRight::SYNCHRONIZE) {
-        needed_inheriting |= host::__WASI_RIGHT_FD_DATASYNC;
-        needed_inheriting |= host::__WASI_RIGHT_FD_SYNC;
-    }
-
-    let dirfe = ctx.get_fd_entry(dirfd, needed_base, needed_inheriting)?;
-    let dirfd = dirfe.fd_object.descriptor.as_file()?;
-    let (dir, path) = path_get(
-        dirfd,
-        dirflags,
-        path,
-        !win_flags_attrs.contains(FlagsAndAttributes::FILE_FLAG_BACKUP_SEMANTICS),
-    )?;
 
     let new_handle = winx::file::openat(
-        dir.as_raw_handle(),
+        dirfd.as_raw_handle(),
         path.as_str(),
         win_rights,
         win_create_disp,
@@ -143,15 +119,7 @@ pub(crate) fn path_open(
     )
     .map_err(host_impl::errno_from_win)?;
 
-    // Determine the type of the new file descriptor and which rights contradict with this type
-    let file = unsafe { File::from_raw_handle(new_handle) };
-    determine_type_rights(&file).and_then(|(_ty, max_base, max_inheriting)| {
-        FdEntry::from(file).map(|mut fe| {
-            fe.rights_base &= max_base;
-            fe.rights_inheriting &= max_inheriting;
-            fe
-        })
-    })
+    Ok(unsafe { File::from_raw_handle(new_handle) })
 }
 
 pub(crate) fn fd_readdir(
@@ -162,15 +130,15 @@ pub(crate) fn fd_readdir(
     unimplemented!("fd_readdir")
 }
 
-pub(crate) fn path_readlink(dirfd: &File, path: &str, buf: &mut [u8]) -> Result<usize> {
+pub(crate) fn path_readlink(dirfd: File, path: String, buf: &mut [u8]) -> Result<usize> {
     unimplemented!("path_readlink")
 }
 
 pub(crate) fn path_rename(
-    old_dirfd: &File,
-    old_path: &str,
-    new_dirfd: &File,
-    new_path: &str,
+    old_dirfd: File,
+    old_path: String,
+    new_dirfd: File,
+    new_path: String,
 ) -> Result<()> {
     unimplemented!("path_rename")
 }
@@ -250,17 +218,17 @@ pub(crate) fn fd_filestat_set_size(fd: &File, st_size: host::__wasi_filesize_t) 
 }
 
 pub(crate) fn path_filestat_get(
-    dirfd: &File,
+    dirfd: File,
     dirflags: host::__wasi_lookupflags_t,
-    path: &str,
+    path: String,
 ) -> Result<host::__wasi_filestat_t> {
     unimplemented!("path_filestat_get")
 }
 
 pub(crate) fn path_filestat_set_times(
-    dirfd: &File,
+    dirfd: File,
     dirflags: host::__wasi_lookupflags_t,
-    path: &str,
+    path: String,
     st_atim: host::__wasi_timestamp_t,
     mut st_mtim: host::__wasi_timestamp_t,
     fst_flags: host::__wasi_fstflags_t,
@@ -268,14 +236,14 @@ pub(crate) fn path_filestat_set_times(
     unimplemented!("path_filestat_set_times")
 }
 
-pub(crate) fn path_symlink(dirfd: &File, old_path: &str, new_path: &str) -> Result<()> {
+pub(crate) fn path_symlink(dirfd: File, old_path: &str, new_path: String) -> Result<()> {
     unimplemented!("path_symlink")
 }
 
-pub(crate) fn path_unlink_file(dirfd: &File, path: &str) -> Result<()> {
+pub(crate) fn path_unlink_file(dirfd: File, path: String) -> Result<()> {
     unimplemented!("path_unlink_file")
 }
 
-pub(crate) fn path_remove_directory(dirfd: &File, path: &str) -> Result<()> {
+pub(crate) fn path_remove_directory(dirfd: File, path: String) -> Result<()> {
     unimplemented!("path_remove_directory")
 }
