@@ -1,9 +1,9 @@
 #![allow(non_camel_case_types)]
 use crate::{winerror, Result};
-use std::ffi::{c_void, OsStr, OsString};
+use std::ffi::{c_void, OsString};
 use std::fs::File;
 use std::io;
-use std::os::windows::prelude::{AsRawHandle, OsStrExt, OsStringExt, RawHandle};
+use std::os::windows::prelude::{AsRawHandle, OsStringExt, RawHandle};
 use winapi::shared::minwindef::{self, DWORD};
 use winapi::um::{fileapi, fileapi::GetFileType, minwinbase, winbase, winnt};
 
@@ -393,15 +393,6 @@ pub fn get_path_by_handle(handle: RawHandle) -> Result<OsString> {
     // concatenate paths
     raw_path.resize(read_len as usize, 0);
     Ok(OsString::from_wide(&raw_path))
-}
-
-pub fn strip_extended_prefix<P: AsRef<OsStr>>(path: P) -> OsString {
-    let path: Vec<u16> = path.as_ref().encode_wide().collect();
-    if &[92, 92, 63, 92] == &path[0..4] {
-        OsString::from_wide(&path[4..])
-    } else {
-        OsString::from_wide(&path)
-    }
 }
 
 // Taken from Rust libstd, file libstd/sys/windows/fs.rs

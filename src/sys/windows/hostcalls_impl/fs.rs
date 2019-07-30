@@ -73,7 +73,7 @@ pub(crate) fn fd_advise(
 }
 
 pub(crate) fn path_create_directory(dirfd: File, path: String) -> Result<()> {
-    let path = concatenate_if_relative(&dirfd, Path::new(&path))?;
+    let path = concatenate(&dirfd, Path::new(&path))?;
     std::fs::create_dir(path).map_err(errno_from_ioerror)
 }
 
@@ -98,16 +98,25 @@ pub(crate) fn path_open(
     use winapi::um::winnt::READ_CONTROL;
 
     let mut opts = OpenOptions::new();
-    opts.access_mode(READ_CONTROL)
-        .custom_flags(FILE_FLAG_BACKUP_SEMANTICS)
-        .read(read)
-        .write(write);
+    opts.custom_flags(FILE_FLAG_BACKUP_SEMANTICS);
+
+    // READ_CONTROL is needed as the basic access right
+    // if *nothing* else is specified
+    // here, we only check for not read nor write
+    // TODO should this also take the result of
+    // oflags and fdflags conversion into account?
+    if !read && !write {
+        opts.access_mode(READ_CONTROL);
+    } else {
+        opts.read(read).write(write);
+    }
+
     // convert open flags
     host_impl::open_options_from_oflags(&mut opts, oflags);
     // convert file descriptor flags
     host_impl::open_options_from_fdflags(&mut opts, fdflags);
 
-    let path = concatenate_if_relative(&dirfd, Path::new(&path))?;
+    let path = concatenate(&dirfd, Path::new(&path))?;
     opts.open(path).map_err(errno_from_ioerror)
 }
 
