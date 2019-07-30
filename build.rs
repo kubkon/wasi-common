@@ -137,6 +137,7 @@ cfg_if::cfg_if! {
                     "renumber" => false,
                     "close_preopen" => false,
                     "file_seek_tell" => false,
+                    "directory_seek" => false,
                     _ => true,
                 }
             } else {

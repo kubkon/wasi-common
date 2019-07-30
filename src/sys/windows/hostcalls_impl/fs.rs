@@ -13,6 +13,7 @@ use std::fs::{File, Metadata, OpenOptions};
 use std::io::{self, Seek, SeekFrom};
 use std::os::windows::fs::{FileExt, OpenOptionsExt};
 use std::os::windows::prelude::{AsRawHandle, FromRawHandle};
+use std::path::Path;
 
 fn read_at(mut file: &File, buf: &mut [u8], offset: u64) -> io::Result<usize> {
     // get current cursor position
@@ -72,7 +73,8 @@ pub(crate) fn fd_advise(
 }
 
 pub(crate) fn path_create_directory(dirfd: File, path: String) -> Result<()> {
-    unimplemented!("path_create_directory")
+    let path = concatenate_if_relative(&dirfd, Path::new(&path))?;
+    std::fs::create_dir(path).map_err(errno_from_ioerror)
 }
 
 pub(crate) fn path_link(
@@ -92,9 +94,14 @@ pub(crate) fn path_open(
     oflags: host::__wasi_oflags_t,
     fdflags: host::__wasi_fdflags_t,
 ) -> Result<File> {
-    use std::path::Path;
+    use winapi::um::winbase::FILE_FLAG_BACKUP_SEMANTICS;
+    use winapi::um::winnt::READ_CONTROL;
+
     let mut opts = OpenOptions::new();
-    opts.read(read).write(write);
+    opts.access_mode(READ_CONTROL)
+        .custom_flags(FILE_FLAG_BACKUP_SEMANTICS)
+        .read(read)
+        .write(write);
     // convert open flags
     host_impl::open_options_from_oflags(&mut opts, oflags);
     // convert file descriptor flags

@@ -84,12 +84,6 @@ pub(crate) fn open_options_from_oflags(
     opts: &mut OpenOptions,
     oflags: host::__wasi_oflags_t,
 ) -> &mut OpenOptions {
-    use winapi::um::winbase::FILE_FLAG_BACKUP_SEMANTICS;
-
-    if oflags & host::__WASI_O_DIRECTORY != 0 {
-        opts.custom_flags(FILE_FLAG_BACKUP_SEMANTICS);
-    }
-
     if oflags & host::__WASI_O_CREAT != 0 {
         if oflags & host::__WASI_O_EXCL != 0 {
             opts.create_new(true);
