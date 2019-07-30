@@ -1,9 +1,11 @@
 #![allow(non_camel_case_types)]
 #![allow(unused_unsafe)]
+use crate::sys::errno_from_ioerror;
 use crate::sys::host_impl;
 use crate::{host, Result};
 use std::fs::File;
-use std::os::windows::prelude::{AsRawHandle, FromRawHandle};
+use std::os::windows::prelude::AsRawHandle;
+use std::path::{Path, PathBuf};
 
 pub(crate) fn path_open_rights(
     rights_base: host::__wasi_rights_t,
@@ -38,19 +40,41 @@ pub(crate) fn path_open_rights(
 }
 
 pub(crate) fn openat(dirfd: &File, path: &str) -> Result<File> {
-    use winx::file::{openat, AccessRight, CreationDisposition, FlagsAndAttributes};
+    use std::fs::OpenOptions;
+    use std::os::windows::fs::OpenOptionsExt;
+    use winapi::um::winbase::FILE_FLAG_BACKUP_SEMANTICS;
 
-    openat(
-        dirfd.as_raw_handle(),
-        path,
-        AccessRight::FILE_GENERIC_READ,
-        CreationDisposition::OPEN_EXISTING,
-        FlagsAndAttributes::FILE_FLAG_BACKUP_SEMANTICS,
-    )
-    .map(|new_handle| unsafe { File::from_raw_handle(new_handle) })
-    .map_err(host_impl::errno_from_win)
+    let path = concatenate_if_relative(dirfd, Path::new(path))?;
+    OpenOptions::new()
+        .read(true)
+        .custom_flags(FILE_FLAG_BACKUP_SEMANTICS)
+        .open(path)
+        .map_err(errno_from_ioerror)
 }
 
-pub(crate) fn readlinkat(_dirfd: &File, _path: &str) -> Result<String> {
-    unimplemented!("readlinkat")
+pub(crate) fn readlinkat(dirfd: &File, path: &str) -> Result<String> {
+    use std::fs;
+
+    let path = concatenate_if_relative(dirfd, Path::new(path))?;
+    fs::read_link(path)
+        .map_err(errno_from_ioerror)
+        .and_then(|path| path.to_str().map(String::from).ok_or(host::__WASI_EILSEQ))
+}
+
+pub(crate) fn concatenate_if_relative<P: AsRef<Path>>(dirfd: &File, path: P) -> Result<PathBuf> {
+    use winx::file::get_path_by_handle;
+
+    // check if specified path is absolute
+    let out_path = if path.as_ref().is_absolute() {
+        path.as_ref().to_owned()
+    } else {
+        let dir_path =
+            get_path_by_handle(dirfd.as_raw_handle()).map_err(host_impl::errno_from_win)?;
+        // concatenate paths
+        let mut out_path = PathBuf::from(&dir_path);
+        out_path.push(path.as_ref());
+        out_path.into()
+    };
+
+    Ok(out_path)
 }

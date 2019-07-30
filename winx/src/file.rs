@@ -379,7 +379,7 @@ pub fn str_to_wide<S: AsRef<OsStr>>(s: S) -> Vec<u16> {
     win_unicode
 }
 
-fn get_path_by_handle(handle: RawHandle) -> Result<OsString> {
+pub fn get_path_by_handle(handle: RawHandle) -> Result<OsString> {
     use winapi::um::fileapi::GetFinalPathNameByHandleW;
 
     let mut raw_path: Vec<u16> = Vec::with_capacity(WIDE_MAX_PATH as usize);
@@ -402,7 +402,7 @@ fn get_path_by_handle(handle: RawHandle) -> Result<OsString> {
     Ok(OsString::from_wide(&raw_path))
 }
 
-fn strip_extended_prefix<P: AsRef<OsStr>>(path: P) -> OsString {
+pub fn strip_extended_prefix<P: AsRef<OsStr>>(path: P) -> OsString {
     let path = str_to_wide(path);
     if &[92, 92, 63, 92] == &path[0..4] {
         OsString::from_wide(&path[4..])
