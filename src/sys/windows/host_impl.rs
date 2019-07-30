@@ -4,7 +4,9 @@
 #![allow(unused)]
 use crate::{host, Result};
 use std::ffi::OsStr;
+use std::fs::OpenOptions;
 use std::os::windows::ffi::OsStrExt;
+use std::os::windows::fs::OpenOptionsExt;
 
 pub(crate) fn errno_from_win(error: winx::winerror::WinError) -> host::__wasi_errno_t {
     // TODO: implement error mapping between Windows and WASI
@@ -28,29 +30,6 @@ pub(crate) fn errno_from_win(error: winx::winerror::WinError) -> host::__wasi_er
         ERROR_SHARING_BUFFER_EXCEEDED => host::__WASI_ENFILE,
         _ => host::__WASI_ENOTSUP,
     }
-}
-
-pub(crate) fn win_from_fdflags(
-    fdflags: host::__wasi_fdflags_t,
-) -> (winx::file::AccessRight, winx::file::FlagsAndAttributes) {
-    use winx::file::{AccessRight, FlagsAndAttributes};
-    // TODO verify this!
-    let mut win_rights = AccessRight::empty();
-    let mut win_flags_attrs = FlagsAndAttributes::empty();
-
-    if fdflags & host::__WASI_FDFLAG_NONBLOCK != 0 {
-        win_flags_attrs.insert(FlagsAndAttributes::FILE_FLAG_OVERLAPPED);
-    }
-    if fdflags & host::__WASI_FDFLAG_APPEND != 0 {
-        win_rights.insert(AccessRight::FILE_APPEND_DATA);
-    }
-    if fdflags & host::__WASI_FDFLAG_DSYNC != 0
-        || fdflags & host::__WASI_FDFLAG_RSYNC != 0
-        || fdflags & host::__WASI_FDFLAG_SYNC != 0
-    {
-        win_rights.insert(AccessRight::SYNCHRONIZE);
-    }
-    (win_rights, win_flags_attrs)
 }
 
 pub(crate) fn fdflags_from_win(rights: winx::file::AccessRight) -> host::__wasi_fdflags_t {
@@ -77,31 +56,51 @@ pub(crate) fn fdflags_from_win(rights: winx::file::AccessRight) -> host::__wasi_
     fdflags
 }
 
-pub(crate) fn win_from_oflags(
+pub(crate) fn open_options_from_fdflags(
+    opts: &mut OpenOptions,
+    fdflags: host::__wasi_fdflags_t,
+) -> &mut OpenOptions {
+    use winapi::um::winbase::FILE_FLAG_OVERLAPPED;
+    use winapi::um::winnt::SYNCHRONIZE;
+
+    // TODO verify this!
+    if fdflags & host::__WASI_FDFLAG_NONBLOCK != 0 {
+        opts.custom_flags(FILE_FLAG_OVERLAPPED);
+    }
+    if fdflags & host::__WASI_FDFLAG_APPEND != 0 {
+        opts.append(true);
+    }
+    if fdflags & host::__WASI_FDFLAG_DSYNC != 0
+        || fdflags & host::__WASI_FDFLAG_RSYNC != 0
+        || fdflags & host::__WASI_FDFLAG_SYNC != 0
+    {
+        opts.access_mode(SYNCHRONIZE);
+    }
+
+    opts
+}
+
+pub(crate) fn open_options_from_oflags(
+    opts: &mut OpenOptions,
     oflags: host::__wasi_oflags_t,
-) -> (
-    winx::file::CreationDisposition,
-    winx::file::FlagsAndAttributes,
-) {
-    use winx::file::{CreationDisposition, FlagsAndAttributes};
+) -> &mut OpenOptions {
+    use winapi::um::winbase::FILE_FLAG_BACKUP_SEMANTICS;
 
-    let win_flags_attrs = if oflags & host::__WASI_O_DIRECTORY != 0 {
-        FlagsAndAttributes::FILE_FLAG_BACKUP_SEMANTICS
-    } else {
-        FlagsAndAttributes::FILE_ATTRIBUTE_NORMAL
-    };
+    if oflags & host::__WASI_O_DIRECTORY != 0 {
+        opts.custom_flags(FILE_FLAG_BACKUP_SEMANTICS);
+    }
 
-    let win_disp = if oflags & host::__WASI_O_CREAT != 0 && oflags & host::__WASI_O_EXCL != 0 {
-        CreationDisposition::CREATE_NEW
-    } else if oflags & host::__WASI_O_CREAT != 0 {
-        CreationDisposition::CREATE_ALWAYS
+    if oflags & host::__WASI_O_CREAT != 0 {
+        if oflags & host::__WASI_O_EXCL != 0 {
+            opts.create_new(true);
+        } else {
+            opts.create(true);
+        }
     } else if oflags & host::__WASI_O_TRUNC != 0 {
-        CreationDisposition::TRUNCATE_EXISTING
-    } else {
-        CreationDisposition::OPEN_EXISTING
-    };
+        opts.truncate(true);
+    }
 
-    (win_disp, win_flags_attrs)
+    opts
 }
 
 /// Creates owned WASI path from OS string.

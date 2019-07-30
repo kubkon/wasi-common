@@ -1,5 +1,4 @@
 #![allow(non_camel_case_types)]
-#![allow(unused_unsafe)]
 use crate::sys::errno_from_ioerror;
 use crate::sys::host_impl;
 use crate::{host, Result};
@@ -11,27 +10,24 @@ pub(crate) fn path_open_rights(
     rights_base: host::__wasi_rights_t,
     rights_inheriting: host::__wasi_rights_t,
     oflags: host::__wasi_oflags_t,
-    fs_flags: host::__wasi_fdflags_t,
+    fdflags: host::__wasi_fdflags_t,
 ) -> (host::__wasi_rights_t, host::__wasi_rights_t) {
-    use winx::file::{AccessRight, CreationDisposition};
-
     // which rights are needed on the dirfd?
     let mut needed_base = host::__WASI_RIGHT_PATH_OPEN;
     let mut needed_inheriting = rights_base | rights_inheriting;
 
     // convert open flags
-    let (win_create_disp, _) = host_impl::win_from_oflags(oflags);
-    if win_create_disp == CreationDisposition::CREATE_NEW {
+    if oflags & host::__WASI_O_CREAT != 0 {
         needed_base |= host::__WASI_RIGHT_PATH_CREATE_FILE;
-    } else if win_create_disp == CreationDisposition::CREATE_ALWAYS {
-        needed_base |= host::__WASI_RIGHT_PATH_CREATE_FILE;
-    } else if win_create_disp == CreationDisposition::TRUNCATE_EXISTING {
+    } else if oflags & host::__WASI_O_TRUNC != 0 {
         needed_base |= host::__WASI_RIGHT_PATH_FILESTAT_SET_SIZE;
     }
 
     // convert file descriptor flags
-    let win_fdflags_res = host_impl::win_from_fdflags(fs_flags);
-    if win_fdflags_res.0.contains(AccessRight::SYNCHRONIZE) {
+    if fdflags & host::__WASI_FDFLAG_DSYNC != 0
+        || fdflags & host::__WASI_FDFLAG_RSYNC != 0
+        || fdflags & host::__WASI_FDFLAG_SYNC != 0
+    {
         needed_inheriting |= host::__WASI_RIGHT_FD_DATASYNC;
         needed_inheriting |= host::__WASI_RIGHT_FD_SYNC;
     }
@@ -62,7 +58,7 @@ pub(crate) fn readlinkat(dirfd: &File, path: &str) -> Result<String> {
 }
 
 pub(crate) fn concatenate_if_relative<P: AsRef<Path>>(dirfd: &File, path: P) -> Result<PathBuf> {
-    use winx::file::get_path_by_handle;
+    use winx::file::{get_path_by_handle, strip_extended_prefix};
 
     // check if specified path is absolute
     let out_path = if path.as_ref().is_absolute() {
@@ -73,8 +69,12 @@ pub(crate) fn concatenate_if_relative<P: AsRef<Path>>(dirfd: &File, path: P) -> 
         // concatenate paths
         let mut out_path = PathBuf::from(&dir_path);
         out_path.push(path.as_ref());
-        out_path.into()
+        // strip extended prefix; otherwise we will error out on any relative
+        // components with `out_path`
+        PathBuf::from(strip_extended_prefix(out_path))
     };
+
+    log::debug!("out_path={:?}", out_path);
 
     Ok(out_path)
 }

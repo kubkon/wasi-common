@@ -44,7 +44,7 @@ pub(crate) fn path_get(
     loop {
         match path_stack.pop() {
             Some(cur_path) => {
-                // eprintln!("cur_path = {:?}", cur_path);
+                log::debug!("cur_path = {:?}", cur_path);
 
                 let ends_with_slash = cur_path.ends_with("/");
                 let mut components = Path::new(&cur_path).components();

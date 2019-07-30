@@ -9,9 +9,9 @@ use crate::sys::host_impl;
 use crate::sys::{errno_from_host, errno_from_ioerror};
 use crate::{host, Result};
 use std::convert::TryInto;
-use std::fs::{File, Metadata};
+use std::fs::{File, Metadata, OpenOptions};
 use std::io::{self, Seek, SeekFrom};
-use std::os::windows::fs::FileExt;
+use std::os::windows::fs::{FileExt, OpenOptionsExt};
 use std::os::windows::prelude::{AsRawHandle, FromRawHandle};
 
 fn read_at(mut file: &File, buf: &mut [u8], offset: u64) -> io::Result<usize> {
@@ -90,36 +90,18 @@ pub(crate) fn path_open(
     read: bool,
     write: bool,
     oflags: host::__wasi_oflags_t,
-    fs_flags: host::__wasi_fdflags_t,
+    fdflags: host::__wasi_fdflags_t,
 ) -> Result<File> {
-    use winx::file::{AccessRight, CreationDisposition, FlagsAndAttributes, ShareMode};
-
-    let mut win_rights = AccessRight::READ_CONTROL;
-    if read {
-        win_rights.insert(AccessRight::FILE_GENERIC_READ);
-    }
-    if write {
-        win_rights.insert(AccessRight::FILE_GENERIC_WRITE);
-    }
-
+    use std::path::Path;
+    let mut opts = OpenOptions::new();
+    opts.read(read).write(write);
     // convert open flags
-    let (win_create_disp, mut win_flags_attrs) = host_impl::win_from_oflags(oflags);
-
+    host_impl::open_options_from_oflags(&mut opts, oflags);
     // convert file descriptor flags
-    let win_fdflags_res = host_impl::win_from_fdflags(fs_flags);
-    win_rights.insert(win_fdflags_res.0);
-    win_flags_attrs.insert(win_fdflags_res.1);
+    host_impl::open_options_from_fdflags(&mut opts, fdflags);
 
-    let new_handle = winx::file::openat(
-        dirfd.as_raw_handle(),
-        path.as_str(),
-        win_rights,
-        win_create_disp,
-        win_flags_attrs,
-    )
-    .map_err(host_impl::errno_from_win)?;
-
-    Ok(unsafe { File::from_raw_handle(new_handle) })
+    let path = concatenate_if_relative(&dirfd, Path::new(&path))?;
+    opts.open(path).map_err(errno_from_ioerror)
 }
 
 pub(crate) fn fd_readdir(

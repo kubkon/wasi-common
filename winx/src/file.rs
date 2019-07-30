@@ -372,13 +372,6 @@ pub fn get_file_access_rights(handle: RawHandle) -> Result<minwindef::DWORD> {
     }
 }
 
-/// Converts OS string reference to Windows wide UTF-16 format.
-pub fn str_to_wide<S: AsRef<OsStr>>(s: S) -> Vec<u16> {
-    let mut win_unicode: Vec<u16> = s.as_ref().encode_wide().collect();
-    win_unicode.push(0);
-    win_unicode
-}
-
 pub fn get_path_by_handle(handle: RawHandle) -> Result<OsString> {
     use winapi::um::fileapi::GetFinalPathNameByHandleW;
 
@@ -403,60 +396,11 @@ pub fn get_path_by_handle(handle: RawHandle) -> Result<OsString> {
 }
 
 pub fn strip_extended_prefix<P: AsRef<OsStr>>(path: P) -> OsString {
-    let path = str_to_wide(path);
+    let path: Vec<u16> = path.as_ref().encode_wide().collect();
     if &[92, 92, 63, 92] == &path[0..4] {
         OsString::from_wide(&path[4..])
     } else {
         OsString::from_wide(&path)
-    }
-}
-
-/// Opens a `path` relative to a directory handle `dir_handle`, and returns a handle to the
-/// newly opened file. The newly opened file will have the specified `AccessRight` `rights`.
-///
-/// If the `path` is absolute, then the directory handle `dir_handle` is ignored.
-pub fn openat<S: AsRef<OsStr>>(
-    dir_handle: RawHandle,
-    path: S,
-    rights: AccessRight,
-    disposition: CreationDisposition,
-    flags_attrs: FlagsAndAttributes,
-) -> Result<RawHandle> {
-    use std::path::PathBuf;
-    use winapi::um::fileapi::CreateFileW;
-    use winapi::um::handleapi::INVALID_HANDLE_VALUE;
-
-    // check if specified path is absolute
-    let path = PathBuf::from(path.as_ref());
-    let out_path = if path.is_absolute() {
-        path
-    } else {
-        let dir_path = get_path_by_handle(dir_handle)?;
-        // concatenate paths
-        let mut out_path = PathBuf::from(&dir_path);
-        out_path.push(path);
-        out_path.into()
-    };
-
-    // this is needed so that we can use relative paths
-    let raw_out_path = strip_extended_prefix(out_path);
-    let raw_out_path = str_to_wide(raw_out_path);
-    let handle = unsafe {
-        CreateFileW(
-            raw_out_path.as_ptr(),
-            rights.bits(),
-            ShareMode::ALL.bits(),
-            std::ptr::null_mut(),
-            disposition as minwindef::DWORD,
-            flags_attrs.bits(),
-            std::ptr::null_mut(),
-        )
-    };
-
-    if handle == INVALID_HANDLE_VALUE {
-        Err(winerror::WinError::last())
-    } else {
-        Ok(handle)
     }
 }
 
