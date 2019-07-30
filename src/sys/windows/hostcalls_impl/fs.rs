@@ -243,5 +243,6 @@ pub(crate) fn path_unlink_file(dirfd: File, path: String) -> Result<()> {
 }
 
 pub(crate) fn path_remove_directory(dirfd: File, path: String) -> Result<()> {
-    unimplemented!("path_remove_directory")
+    let path = concatenate(&dirfd, Path::new(&path))?;
+    std::fs::remove_dir(path).map_err(errno_from_ioerror)
 }

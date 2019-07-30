@@ -138,6 +138,7 @@ cfg_if::cfg_if! {
                     "close_preopen" => false,
                     "file_seek_tell" => false,
                     "directory_seek" => false,
+                    "remove_nonempty_directory" => false,
                     _ => true,
                 }
             } else {
