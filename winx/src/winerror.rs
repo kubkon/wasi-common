@@ -78,6 +78,10 @@ win_error_expand! {
     ERROR_INVALID_NAME,
     /// The process cannot access the file because it is being used by another process.
     ERROR_SHARING_VIOLATION,
+    /// A required privilege is not held by the client.
+    ERROR_PRIVILEGE_NOT_HELD,
+    /// The file or directory is not a reparse point.
+    ERROR_NOT_A_REPARSE_POINT,
 }
 
 impl WinError {

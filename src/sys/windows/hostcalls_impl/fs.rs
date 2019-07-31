@@ -124,10 +124,56 @@ pub(crate) fn path_open(
     flags.insert(add_flags);
 
     let path = concatenate(&dirfd, Path::new(&path))?;
+
+    // check if we are trying to open a file as a dir
+    if path.is_file() && oflags & host::__WASI_O_DIRECTORY != 0 {
+        return Err(host::__WASI_ENOTDIR);
+    }
+
+    // check if we are trying to open a symlink
+    match std::fs::symlink_metadata(&path) {
+        Ok(metadata) => {
+            if metadata.file_type().is_symlink() {
+                return Err(host::__WASI_ELOOP);
+            }
+        }
+        Err(e) => {
+            use winx::winerror::WinError;
+            match e.raw_os_error() {
+                Some(e) => match WinError::from_u32(e as u32) {
+                    WinError::ERROR_PATH_NOT_FOUND | WinError::ERROR_FILE_NOT_FOUND => {
+                        // skip
+                    }
+                    e => return Err(host_impl::errno_from_win(e)),
+                },
+                None => {
+                    log::debug!("Inconvertible OS error: {}", e);
+                    return Err(host::__WASI_EIO);
+                }
+            }
+        }
+    }
+
     opts.access_mode(access_mode.bits())
         .custom_flags(flags.bits())
         .open(path)
-        .map_err(errno_from_ioerror)
+        .map_err(|e| {
+            use winx::winerror::WinError;
+            log::debug!("opts error={:?}", e);
+            match e.raw_os_error() {
+                Some(e) => match WinError::from_u32(e as u32) {
+                    WinError::ERROR_INVALID_NAME => {
+                        // TODO
+                        host::__WASI_ENOTDIR
+                    }
+                    e => host_impl::errno_from_win(e),
+                },
+                None => {
+                    log::debug!("Inconvertible OS error: {}", e);
+                    host::__WASI_EIO
+                }
+            }
+        })
 }
 
 pub(crate) fn fd_readdir(
@@ -245,32 +291,59 @@ pub(crate) fn path_filestat_set_times(
 }
 
 pub(crate) fn path_symlink(dirfd: File, old_path: &str, new_path: String) -> Result<()> {
-    unimplemented!("path_symlink")
+    use std::os::windows::fs::{symlink_dir, symlink_file};
+    let old_path = concatenate(&dirfd, Path::new(&old_path))?;
+    let new_path = concatenate(&dirfd, Path::new(&new_path))?;
+
+    if old_path.is_file() {
+        // create file symlink
+        symlink_file(old_path, new_path).map_err(errno_from_ioerror)
+    } else if old_path.is_dir() {
+        // create dir symlink
+        symlink_dir(old_path, new_path).map_err(errno_from_ioerror)
+    } else {
+        Err(host::__WASI_EBADF)
+    }
 }
 
 pub(crate) fn path_unlink_file(dirfd: File, path: String) -> Result<()> {
     let path = concatenate(&dirfd, Path::new(&path))?;
-    std::fs::remove_file(&path).map_err(|e| {
+    let metadata = std::fs::symlink_metadata(&path).map_err(errno_from_ioerror)?;
+    let file_type = metadata.file_type();
+    // check if we're actually trying to remove a dir not a file
+    if file_type.is_dir() {
+        return Err(host::__WASI_EISDIR);
+    }
+    // check if we're dealing with a symlink
+    let is_symlink = file_type.is_symlink();
+
+    if let Err(e) = std::fs::remove_file(&path) {
         use winx::winerror::WinError;
+        log::debug!("path_unlink_file error={:?}", e);
         match e.raw_os_error() {
             Some(e) => match WinError::from_u32(e as u32) {
                 e @ WinError::ERROR_ACCESS_DENIED => {
-                    // check if we're actually trying to remove
-                    // a dir and not a file
-                    if path.is_dir() {
-                        host::__WASI_EISDIR
+                    // if we're dealing with a symlink, try removing a symlink_dir as well
+                    // NB this should become much cleaner when FileTypeExt for Windows stabilises
+                    // https://doc.rust-lang.org/std/os/windows/fs/trait.FileTypeExt.html#tymethod.is_symlink_dir
+                    if is_symlink {
+                        if let Err(e) = std::fs::remove_dir(path).map_err(errno_from_ioerror) {
+                            return Err(e);
+                        }
                     } else {
-                        host_impl::errno_from_win(e)
+                        return Err(host_impl::errno_from_win(e));
                     }
                 }
-                x => host_impl::errno_from_win(x),
+                x => return Err(host_impl::errno_from_win(x)),
             },
             None => {
                 log::debug!("Inconvertible OS error: {}", e);
-                host::__WASI_EIO
+                return Err(host::__WASI_EIO);
             }
         }
-    })
+    }
+
+    Ok(())
 }
 
 pub(crate) fn path_remove_directory(dirfd: File, path: String) -> Result<()> {
