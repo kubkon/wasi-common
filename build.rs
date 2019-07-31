@@ -131,17 +131,12 @@ cfg_if::cfg_if! {
         fn ignore(testsuite: &str, name: &str) -> bool {
             if testsuite == "misc_testsuite" {
                 match name {
-                    "big_random_buf" => false,
-                    "sched_yield" => false,
-                    "file_pread_pwrite" => false,
-                    "renumber" => false,
-                    "close_preopen" => false,
-                    "file_seek_tell" => false,
-                    "directory_seek" => false,
-                    "remove_nonempty_directory" => false,
-                    "file_allocate" => false,
-                    "interesting_paths" => false,
-                    _ => true,
+                    "clock_time_get" => true,
+                    "nofollow_errors" => true,
+                    "readlink_no_buffer" => true,
+                    "symlink_loop" => true,
+                    "truncation_rights" => true,
+                    _ => false,
                 }
             } else {
                 unreachable!()

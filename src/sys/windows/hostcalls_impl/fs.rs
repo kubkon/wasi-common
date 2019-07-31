@@ -250,7 +250,27 @@ pub(crate) fn path_symlink(dirfd: File, old_path: &str, new_path: String) -> Res
 
 pub(crate) fn path_unlink_file(dirfd: File, path: String) -> Result<()> {
     let path = concatenate(&dirfd, Path::new(&path))?;
-    std::fs::remove_file(path).map_err(errno_from_ioerror)
+    std::fs::remove_file(&path).map_err(|e| {
+        use winx::winerror::WinError;
+        match e.raw_os_error() {
+            Some(e) => match WinError::from_u32(e as u32) {
+                e @ WinError::ERROR_ACCESS_DENIED => {
+                    // check if we're actually trying to remove
+                    // a dir and not a file
+                    if path.is_dir() {
+                        host::__WASI_EISDIR
+                    } else {
+                        host_impl::errno_from_win(e)
+                    }
+                }
+                x => host_impl::errno_from_win(x),
+            },
+            None => {
+                log::debug!("Inconvertible OS error: {}", e);
+                host::__WASI_EIO
+            }
+        }
+    })
 }
 
 pub(crate) fn path_remove_directory(dirfd: File, path: String) -> Result<()> {
