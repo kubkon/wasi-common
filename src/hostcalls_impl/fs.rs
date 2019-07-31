@@ -245,9 +245,10 @@ pub(crate) fn fd_seek(
         host::__WASI_WHENCE_SET => SeekFrom::Start(offset as u64),
         _ => return Err(host::__WASI_EINVAL),
     };
-    let host_newoffset = fd
-        .seek(pos)
-        .map_err(|err| err.raw_os_error().map_or(host::__WASI_EIO, errno_from_host))?;
+    let host_newoffset = fd.seek(pos).map_err(|err| {
+        log::debug!("fd_seek error={:?}", err);
+        err.raw_os_error().map_or(host::__WASI_EIO, errno_from_host)
+    })?;
 
     trace!("     | *newoffset={:?}", host_newoffset);
 

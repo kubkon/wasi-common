@@ -15,20 +15,25 @@ pub(crate) fn errno_from_win(error: winx::winerror::WinError) -> host::__wasi_er
     match error {
         ERROR_SUCCESS => host::__WASI_ESUCCESS,
         ERROR_BAD_ENVIRONMENT => host::__WASI_E2BIG,
-        ERROR_FILE_NOT_FOUND | ERROR_PATH_NOT_FOUND => host::__WASI_ENOENT,
+        ERROR_FILE_NOT_FOUND => host::__WASI_ENOENT,
+        ERROR_PATH_NOT_FOUND => host::__WASI_ENOENT,
         ERROR_TOO_MANY_OPEN_FILES => host::__WASI_ENFILE,
-        ERROR_ACCESS_DENIED | ERROR_SHARING_VIOLATION | ERROR_PRIVILEGE_NOT_HELD => {
-            host::__WASI_EACCES
-        }
-        ERROR_INVALID_HANDLE | ERROR_INVALID_NAME => host::__WASI_EBADF,
-        ERROR_NOT_ENOUGH_MEMORY | ERROR_OUTOFMEMORY => host::__WASI_ENOMEM,
+        ERROR_ACCESS_DENIED => host::__WASI_EACCES,
+        ERROR_SHARING_VIOLATION => host::__WASI_EACCES,
+        ERROR_PRIVILEGE_NOT_HELD => host::__WASI_EACCES,
+        ERROR_INVALID_HANDLE => host::__WASI_EBADF,
+        ERROR_INVALID_NAME => host::__WASI_EBADF,
+        ERROR_NOT_ENOUGH_MEMORY => host::__WASI_ENOMEM,
+        ERROR_OUTOFMEMORY => host::__WASI_ENOMEM,
         ERROR_DIR_NOT_EMPTY => host::__WASI_ENOTEMPTY,
-        ERROR_NOT_READY | ERROR_BUSY => host::__WASI_EBUSY,
+        ERROR_NOT_READY => host::__WASI_EBUSY,
+        ERROR_BUSY => host::__WASI_EBUSY,
         ERROR_NOT_SUPPORTED => host::__WASI_ENOTSUP,
         ERROR_FILE_EXISTS => host::__WASI_EEXIST,
         ERROR_BROKEN_PIPE => host::__WASI_EPIPE,
         ERROR_BUFFER_OVERFLOW => host::__WASI_ENAMETOOLONG,
         ERROR_NOT_A_REPARSE_POINT => host::__WASI_EINVAL,
+        ERROR_NEGATIVE_SEEK => host::__WASI_EINVAL,
         _ => host::__WASI_ENOTSUP,
     }
 }

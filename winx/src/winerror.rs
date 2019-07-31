@@ -82,6 +82,8 @@ win_error_expand! {
     ERROR_PRIVILEGE_NOT_HELD,
     /// The file or directory is not a reparse point.
     ERROR_NOT_A_REPARSE_POINT,
+    /// An attempt was made to move the file pointer before the beginning of the file.
+    ERROR_NEGATIVE_SEEK,
 }
 
 impl WinError {
