@@ -1,5 +1,4 @@
 #![allow(non_camel_case_types)]
-use crate::sys::errno_from_ioerror;
 use crate::sys::host_impl;
 use crate::{host, Result};
 use std::fs::File;
@@ -44,16 +43,44 @@ pub(crate) fn openat(dirfd: &File, path: &str) -> Result<File> {
     OpenOptions::new()
         .read(true)
         .custom_flags(FILE_FLAG_BACKUP_SEMANTICS)
-        .open(path)
-        .map_err(errno_from_ioerror)
+        .open(&path)
+        .map_err(|e| {
+            use winx::winerror::WinError;
+            match e.raw_os_error() {
+                Some(e) => match WinError::from_u32(e as u32) {
+                    WinError::ERROR_INVALID_NAME => {
+                        // TODO
+                        host::__WASI_ENOTDIR
+                    }
+                    x => host_impl::errno_from_win(x),
+                },
+                None => {
+                    log::debug!("Inconvertible OS error: {}", e);
+                    host::__WASI_EIO
+                }
+            }
+        })
 }
 
 pub(crate) fn readlinkat(dirfd: &File, path: &str) -> Result<String> {
-    use std::fs;
-
     let path = concatenate(dirfd, Path::new(path))?;
-    fs::read_link(path)
-        .map_err(errno_from_ioerror)
+    std::fs::read_link(path)
+        .map_err(|e| {
+            use winx::winerror::WinError;
+            match e.raw_os_error() {
+                Some(e) => match WinError::from_u32(e as u32) {
+                    WinError::ERROR_INVALID_NAME => {
+                        // TODO
+                        host::__WASI_ENOTDIR
+                    }
+                    x => host_impl::errno_from_win(x),
+                },
+                None => {
+                    log::debug!("Inconvertible OS error: {}", e);
+                    host::__WASI_EIO
+                }
+            }
+        })
         .and_then(|path| path.to_str().map(String::from).ok_or(host::__WASI_EILSEQ))
 }
 

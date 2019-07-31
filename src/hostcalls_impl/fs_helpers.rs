@@ -69,7 +69,6 @@ pub(crate) fn path_get(
                     }
                     Component::CurDir => {
                         // "." so skip
-                        continue;
                     }
                     Component::ParentDir => {
                         // ".." so pop a dir
@@ -91,7 +90,6 @@ pub(crate) fn path_get(
                             match openat(dir_stack.last().ok_or(host::__WASI_ENOTCAPABLE)?, &head) {
                                 Ok(new_dir) => {
                                     dir_stack.push(new_dir);
-                                    continue;
                                 }
                                 Err(e)
                                     if e == host::__WASI_ELOOP
@@ -101,32 +99,28 @@ pub(crate) fn path_get(
                                 // this with ENOTDIR because of the O_DIRECTORY flag.
                                 {
                                     // attempt symlink expansion
-                                    match readlinkat(
+                                    let mut link_path = readlinkat(
                                         dir_stack.last().ok_or(host::__WASI_ENOTCAPABLE)?,
                                         &head,
-                                    ) {
-                                        Ok(mut link_path) => {
-                                            symlink_expansions += 1;
-                                            if symlink_expansions > MAX_SYMLINK_EXPANSIONS {
-                                                return Err(host::__WASI_ELOOP);
-                                            }
+                                    )?;
 
-                                            if head.ends_with("/") {
-                                                link_path.push_str("/");
-                                            }
-
-                                            path_stack.push(link_path);
-                                            continue;
-                                        }
-                                        Err(e) => {
-                                            return Err(e);
-                                        }
+                                    symlink_expansions += 1;
+                                    if symlink_expansions > MAX_SYMLINK_EXPANSIONS {
+                                        return Err(host::__WASI_ELOOP);
                                     }
+
+                                    if head.ends_with("/") {
+                                        link_path.push_str("/");
+                                    }
+
+                                    path_stack.push(link_path);
                                 }
                                 Err(e) => {
                                     return Err(e);
                                 }
                             }
+
+                            continue;
                         } else if ends_with_slash
                             || (dirflags & host::__WASI_LOOKUP_SYMLINK_FOLLOW) != 0
                         {

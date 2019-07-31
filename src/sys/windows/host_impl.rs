@@ -85,10 +85,15 @@ pub(crate) fn open_options_from_oflags(
     oflags: host::__wasi_oflags_t,
 ) -> &mut OpenOptions {
     if oflags & host::__WASI_O_CREAT != 0 {
+        // According to Rust's docs:
+        // The file must be opened with write or append access
+        // in order to create a new file.
+        // This concerns *both* create(..) as well as
+        // create_new(..) methods
         if oflags & host::__WASI_O_EXCL != 0 {
-            opts.create_new(true);
+            opts.create_new(true).write(true);
         } else {
-            opts.create(true);
+            opts.create(true).append(true);
         }
     } else if oflags & host::__WASI_O_TRUNC != 0 {
         opts.truncate(true);

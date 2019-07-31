@@ -139,6 +139,8 @@ cfg_if::cfg_if! {
                     "file_seek_tell" => false,
                     "directory_seek" => false,
                     "remove_nonempty_directory" => false,
+                    "file_allocate" => false,
+                    "interesting_paths" => false,
                     _ => true,
                 }
             } else {

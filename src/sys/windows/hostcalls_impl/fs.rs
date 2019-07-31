@@ -239,7 +239,8 @@ pub(crate) fn path_symlink(dirfd: File, old_path: &str, new_path: String) -> Res
 }
 
 pub(crate) fn path_unlink_file(dirfd: File, path: String) -> Result<()> {
-    unimplemented!("path_unlink_file")
+    let path = concatenate(&dirfd, Path::new(&path))?;
+    std::fs::remove_file(path).map_err(errno_from_ioerror)
 }
 
 pub(crate) fn path_remove_directory(dirfd: File, path: String) -> Result<()> {
