@@ -7,6 +7,7 @@ use std::ffi::OsStr;
 use std::fs::OpenOptions;
 use std::os::windows::ffi::OsStrExt;
 use std::os::windows::fs::OpenOptionsExt;
+use winx::file::{AccessMode, Attributes, CreationDisposition, Flags};
 
 pub(crate) fn errno_from_win(error: winx::winerror::WinError) -> host::__wasi_errno_t {
     // TODO: implement error mapping between Windows and WASI
@@ -32,14 +33,13 @@ pub(crate) fn errno_from_win(error: winx::winerror::WinError) -> host::__wasi_er
     }
 }
 
-pub(crate) fn fdflags_from_win(rights: winx::file::AccessRight) -> host::__wasi_fdflags_t {
-    use winx::file::AccessRight;
+pub(crate) fn fdflags_from_win(mode: AccessMode) -> host::__wasi_fdflags_t {
     let mut fdflags = 0;
     // TODO verify this!
-    if rights.contains(AccessRight::FILE_APPEND_DATA) {
+    if mode.contains(AccessMode::FILE_APPEND_DATA) {
         fdflags |= host::__WASI_FDFLAG_APPEND;
     }
-    if rights.contains(AccessRight::SYNCHRONIZE) {
+    if mode.contains(AccessMode::SYNCHRONIZE) {
         fdflags |= host::__WASI_FDFLAG_DSYNC;
         fdflags |= host::__WASI_FDFLAG_RSYNC;
         fdflags |= host::__WASI_FDFLAG_SYNC;
@@ -56,50 +56,39 @@ pub(crate) fn fdflags_from_win(rights: winx::file::AccessRight) -> host::__wasi_
     fdflags
 }
 
-pub(crate) fn open_options_from_fdflags(
-    opts: &mut OpenOptions,
-    fdflags: host::__wasi_fdflags_t,
-) -> &mut OpenOptions {
-    use winapi::um::winbase::FILE_FLAG_OVERLAPPED;
-    use winapi::um::winnt::SYNCHRONIZE;
+pub(crate) fn win_from_fdflags(fdflags: host::__wasi_fdflags_t) -> (AccessMode, Flags) {
+    let mut access_mode = AccessMode::empty();
+    let mut flags = Flags::empty();
 
     // TODO verify this!
     if fdflags & host::__WASI_FDFLAG_NONBLOCK != 0 {
-        opts.custom_flags(FILE_FLAG_OVERLAPPED);
+        flags.insert(Flags::FILE_FLAG_OVERLAPPED);
     }
     if fdflags & host::__WASI_FDFLAG_APPEND != 0 {
-        opts.append(true);
+        access_mode.insert(AccessMode::FILE_APPEND_DATA);
     }
     if fdflags & host::__WASI_FDFLAG_DSYNC != 0
         || fdflags & host::__WASI_FDFLAG_RSYNC != 0
         || fdflags & host::__WASI_FDFLAG_SYNC != 0
     {
-        opts.access_mode(SYNCHRONIZE);
+        access_mode.insert(AccessMode::SYNCHRONIZE);
     }
 
-    opts
+    (access_mode, flags)
 }
 
-pub(crate) fn open_options_from_oflags(
-    opts: &mut OpenOptions,
-    oflags: host::__wasi_oflags_t,
-) -> &mut OpenOptions {
+pub(crate) fn win_from_oflags(oflags: host::__wasi_oflags_t) -> CreationDisposition {
     if oflags & host::__WASI_O_CREAT != 0 {
-        // According to Rust's docs:
-        // The file must be opened with write or append access
-        // in order to create a new file.
-        // This concerns *both* create(..) as well as
-        // create_new(..) methods
         if oflags & host::__WASI_O_EXCL != 0 {
-            opts.create_new(true).write(true);
+            CreationDisposition::CREATE_NEW
         } else {
-            opts.create(true).append(true);
+            CreationDisposition::CREATE_ALWAYS
         }
     } else if oflags & host::__WASI_O_TRUNC != 0 {
-        opts.truncate(true);
+        CreationDisposition::TRUNCATE_EXISTING
+    } else {
+        CreationDisposition::OPEN_EXISTING
     }
-
-    opts
 }
 
 /// Creates owned WASI path from OS string.

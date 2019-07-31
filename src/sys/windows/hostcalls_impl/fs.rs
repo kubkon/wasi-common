@@ -50,13 +50,10 @@ pub(crate) fn fd_pwrite(file: &File, buf: &[u8], offset: host::__wasi_filesize_t
 }
 
 pub(crate) fn fd_fdstat_get(fd: &File) -> Result<host::__wasi_fdflags_t> {
-    use winx::file::AccessRight;
-    match winx::file::get_file_access_rights(fd.as_raw_handle())
-        .map(AccessRight::from_bits_truncate)
-    {
-        Ok(rights) => Ok(host_impl::fdflags_from_win(rights)),
-        Err(e) => Err(host_impl::errno_from_win(e)),
-    }
+    use winx::file::AccessMode;
+    winx::file::get_file_access_mode(fd.as_raw_handle())
+        .map(host_impl::fdflags_from_win)
+        .map_err(host_impl::errno_from_win)
 }
 
 pub(crate) fn fd_fdstat_set_flags(fd: &File, fdflags: host::__wasi_fdflags_t) -> Result<()> {
@@ -94,30 +91,43 @@ pub(crate) fn path_open(
     oflags: host::__wasi_oflags_t,
     fdflags: host::__wasi_fdflags_t,
 ) -> Result<File> {
-    use winapi::um::winbase::FILE_FLAG_BACKUP_SEMANTICS;
-    use winapi::um::winnt::READ_CONTROL;
+    use winx::file::{AccessMode, CreationDisposition, Flags};
 
-    let mut opts = OpenOptions::new();
-    opts.custom_flags(FILE_FLAG_BACKUP_SEMANTICS);
-
-    // READ_CONTROL is needed as the basic access right
-    // if *nothing* else is specified
-    // here, we only check for not read nor write
-    // TODO should this also take the result of
-    // oflags and fdflags conversion into account?
-    if !read && !write {
-        opts.access_mode(READ_CONTROL);
-    } else {
-        opts.read(read).write(write);
+    let mut access_mode = AccessMode::READ_CONTROL;
+    if read {
+        access_mode.insert(AccessMode::FILE_GENERIC_READ);
+    }
+    if write {
+        access_mode.insert(AccessMode::FILE_GENERIC_WRITE);
     }
 
+    let mut flags = Flags::FILE_FLAG_BACKUP_SEMANTICS;
+
     // convert open flags
-    host_impl::open_options_from_oflags(&mut opts, oflags);
+    let mut opts = OpenOptions::new();
+    match host_impl::win_from_oflags(oflags) {
+        CreationDisposition::CREATE_ALWAYS => {
+            opts.create(true).append(true);
+        }
+        CreationDisposition::CREATE_NEW => {
+            opts.create_new(true).write(true);
+        }
+        CreationDisposition::TRUNCATE_EXISTING => {
+            opts.truncate(true);
+        }
+        _ => {}
+    }
+
     // convert file descriptor flags
-    host_impl::open_options_from_fdflags(&mut opts, fdflags);
+    let (add_access_mode, add_flags) = host_impl::win_from_fdflags(fdflags);
+    access_mode.insert(add_access_mode);
+    flags.insert(add_flags);
 
     let path = concatenate(&dirfd, Path::new(&path))?;
-    opts.open(path).map_err(errno_from_ioerror)
+    opts.access_mode(access_mode.bits())
+        .custom_flags(flags.bits())
+        .open(path)
+        .map_err(errno_from_ioerror)
 }
 
 pub(crate) fn fd_readdir(
