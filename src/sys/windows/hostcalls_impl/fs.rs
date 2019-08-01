@@ -163,7 +163,7 @@ pub(crate) fn path_open(
             match e.raw_os_error() {
                 Some(e) => match WinError::from_u32(e as u32) {
                     WinError::ERROR_INVALID_NAME => {
-                        // TODO
+                        // TODO opening file as a dir
                         host::__WASI_ENOTDIR
                     }
                     e => host_impl::errno_from_win(e),
@@ -301,9 +301,30 @@ pub(crate) fn path_symlink(dirfd: File, old_path: &str, new_path: String) -> Res
     } else if old_path.is_dir() {
         // create dir symlink
         symlink_dir(old_path, new_path).map_err(errno_from_ioerror)
+    } else if !old_path.exists() {
+        // OK, so we've been asked to create a dangling symlink
+        // AFAIK it is impossible to create a symlink to a
+        // nonexistent resource on Windows, or worse, a symlink to itself
+        // so, for the moment we'll cheat by creating and then deleting a dir
+        // and in-between creating a valid symlink, however, IMHO we should
+        // create a wrapper Symlink type which will handle those edge cases
+        // virtually, without touching the OS
+        // TODO rewrite using custom Symlink type
+        create_dangling_symlink(old_path, new_path).map_err(errno_from_ioerror)
     } else {
         Err(host::__WASI_EBADF)
     }
+}
+
+fn create_dangling_symlink<P: AsRef<Path>>(old_path: P, new_path: P) -> io::Result<()> {
+    use std::fs;
+    use std::os::windows::fs::symlink_dir;
+    // open a spoof dir
+    fs::create_dir(&old_path)?;
+    // create dir symlink
+    symlink_dir(&old_path, new_path)?;
+    // now, delete the spoof dir
+    std::fs::remove_dir(old_path)
 }
 
 pub(crate) fn path_unlink_file(dirfd: File, path: String) -> Result<()> {
