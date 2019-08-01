@@ -131,25 +131,18 @@ pub(crate) fn path_open(
     }
 
     // check if we are trying to open a symlink
-    match std::fs::symlink_metadata(&path) {
+    match std::fs::symlink_metadata(&path).map_err(errno_from_ioerror) {
         Ok(metadata) => {
             if metadata.file_type().is_symlink() {
                 return Err(host::__WASI_ELOOP);
             }
         }
         Err(e) => {
-            use winx::winerror::WinError;
-            match e.raw_os_error() {
-                Some(e) => match WinError::from_u32(e as u32) {
-                    WinError::ERROR_PATH_NOT_FOUND | WinError::ERROR_FILE_NOT_FOUND => {
-                        // skip
-                    }
-                    e => return Err(host_impl::errno_from_win(e)),
-                },
-                None => {
-                    log::debug!("Inconvertible OS error: {}", e);
-                    return Err(host::__WASI_EIO);
+            match e {
+                host::__WASI_ENOENT => {
+                    // skip
                 }
+                e => return Err(e),
             }
         }
     }
@@ -157,23 +150,7 @@ pub(crate) fn path_open(
     opts.access_mode(access_mode.bits())
         .custom_flags(flags.bits())
         .open(path)
-        .map_err(|e| {
-            use winx::winerror::WinError;
-            log::debug!("opts error={:?}", e);
-            match e.raw_os_error() {
-                Some(e) => match WinError::from_u32(e as u32) {
-                    WinError::ERROR_INVALID_NAME => {
-                        // TODO opening file as a dir
-                        host::__WASI_ENOTDIR
-                    }
-                    e => host_impl::errno_from_win(e),
-                },
-                None => {
-                    log::debug!("Inconvertible OS error: {}", e);
-                    host::__WASI_EIO
-                }
-            }
-        })
+        .map_err(errno_from_ioerror)
 }
 
 pub(crate) fn fd_readdir(
@@ -203,7 +180,6 @@ pub(crate) fn path_readlink(dirfd: File, path: String, buf: &mut [u8]) -> Result
     for (i, ch) in target_path.chars().enumerate() {
         buf[i] = ch as u8;
     }
-    
     Ok(target_path.len())
 }
 
