@@ -133,7 +133,6 @@ cfg_if::cfg_if! {
                 match name {
                     "clock_time_get" => true,
                     "readlink_no_buffer" => true,
-                    "symlink_loop" => true,
                     "truncation_rights" => true,
                     _ => false,
                 }

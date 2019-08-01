@@ -1,5 +1,6 @@
 #![allow(non_camel_case_types)]
-use crate::sys::host_impl;
+use super::SYMLINKS;
+use crate::sys::{errno_from_ioerror, host_impl};
 use crate::{host, Result};
 use std::ffi::{OsStr, OsString};
 use std::fs::File;
@@ -42,26 +43,19 @@ pub(crate) fn openat(dirfd: &File, path: &str) -> Result<File> {
     use winapi::um::winbase::FILE_FLAG_BACKUP_SEMANTICS;
 
     let path = concatenate(dirfd, Path::new(path))?;
+
+    if let Some(_) = SYMLINKS.lock().unwrap().get(&path) {
+        return Err(host::__WASI_ENOTDIR);
+    }
+
     OpenOptions::new()
         .read(true)
         .custom_flags(FILE_FLAG_BACKUP_SEMANTICS)
         .open(&path)
-        .map_err(|e| {
-            use winx::winerror::WinError;
-            log::debug!("openat error={:?}", e);
-            match e.raw_os_error() {
-                Some(e) => match WinError::from_u32(e as u32) {
-                    WinError::ERROR_INVALID_NAME => {
-                        // TODO
-                        host::__WASI_ENOTDIR
-                    }
-                    x => host_impl::errno_from_win(x),
-                },
-                None => {
-                    log::debug!("Inconvertible OS error: {}", e);
-                    host::__WASI_EIO
-                }
-            }
+        .map_err(errno_from_ioerror)
+        .map_err(|e| match e {
+            host::__WASI_ENOENT | host::__WASI_EINVAL => host::__WASI_ENOTDIR,
+            e => e,
         })
 }
 
@@ -69,36 +63,30 @@ pub(crate) fn readlinkat(dirfd: &File, path: &str) -> Result<String> {
     use winx::file::get_path_by_handle;
 
     let path = concatenate(dirfd, Path::new(path))?;
-    let target_path = std::fs::read_link(path).map_err(|e| {
-        use winx::winerror::WinError;
-        log::debug!("readlinkat error={:?}", e);
-        match e.raw_os_error() {
-            Some(e) => match WinError::from_u32(e as u32) {
-                WinError::ERROR_INVALID_NAME => {
-                    // TODO
-                    host::__WASI_ENOTDIR
-                }
-                x => host_impl::errno_from_win(x),
-            },
-            None => {
-                log::debug!("Inconvertible OS error: {}", e);
-                host::__WASI_EIO
-            }
+
+    match SYMLINKS.lock().unwrap().get(&path) {
+        Some(symlink) => {
+            let target_path = symlink.read_link()?;
+            // since on Windows we are effectively emulating 'at' syscalls
+            // we need to strip the prefix from the absolute path
+            // as otherwise we will error out since WASI is not capable
+            // of dealing with absolute paths
+            let dir_path =
+                get_path_by_handle(dirfd.as_raw_handle()).map_err(host_impl::errno_from_win)?;
+            let dir_path = PathBuf::from(strip_extended_prefix(dir_path));
+            target_path
+                .strip_prefix(dir_path)
+                .map_err(|_| host::__WASI_ENOTCAPABLE)
+                .and_then(|path| path.to_str().map(String::from).ok_or(host::__WASI_EILSEQ))
         }
-    })?;
-
-    log::debug!("readlinkat expanded path={:?}", target_path);
-
-    // since on Windows we are effectively emulating 'at' syscalls
-    // we need to strip the prefix from the absolute path
-    // as otherwise we will error out since WASI is not capable
-    // of dealing with absolute paths
-    let dir_path = get_path_by_handle(dirfd.as_raw_handle()).map_err(host_impl::errno_from_win)?;
-    let dir_path = PathBuf::from(strip_extended_prefix(dir_path));
-    target_path
-        .strip_prefix(dir_path)
-        .map_err(|_| host::__WASI_ENOTCAPABLE)
-        .and_then(|path| path.to_str().map(String::from).ok_or(host::__WASI_EILSEQ))
+        None => {
+            return if path.exists() {
+                Err(host::__WASI_EINVAL)
+            } else {
+                Err(host::__WASI_ENOTDIR)
+            };
+        }
+    }
 }
 
 pub(crate) fn strip_extended_prefix<P: AsRef<OsStr>>(path: P) -> OsString {
