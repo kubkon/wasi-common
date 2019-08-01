@@ -132,7 +132,6 @@ cfg_if::cfg_if! {
             if testsuite == "misc_testsuite" {
                 match name {
                     "clock_time_get" => true,
-                    "readlink_no_buffer" => true,
                     "truncation_rights" => true,
                     _ => false,
                 }

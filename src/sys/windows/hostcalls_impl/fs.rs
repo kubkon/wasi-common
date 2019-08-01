@@ -203,10 +203,24 @@ pub(crate) fn path_readlink(dirfd: File, path: String, buf: &mut [u8]) -> Result
                 .map_err(|_| host::__WASI_ENOTCAPABLE)
                 .and_then(|path| path.to_str().map(String::from).ok_or(host::__WASI_EILSEQ))?;
 
-            for (i, ch) in target_path.chars().enumerate() {
-                buf[i] = ch as u8;
+            if buf.len() > 0 {
+                let mut chars = target_path.chars();
+                let mut nread = 0usize;
+
+                for i in 0..buf.len() {
+                    match chars.next() {
+                        Some(ch) => {
+                            buf[i] = ch as u8;
+                            nread += 1;
+                        }
+                        None => break,
+                    }
+                }
+
+                Ok(nread)
+            } else {
+                Ok(0)
             }
-            Ok(target_path.len())
         }
         None => {
             return Err(host::__WASI_ENOENT);

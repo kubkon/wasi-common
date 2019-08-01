@@ -42,7 +42,7 @@ impl Symlink {
             Ok(Self {
                 source: source_path.to_owned(),
                 target: target_path.to_owned(),
-                kind
+                kind,
             })
         }
     }
@@ -89,9 +89,9 @@ impl Symlink {
 
     pub(crate) fn read_link(&self) -> Result<PathBuf> {
         match self.kind {
-            SymlinkKind::Loop => Err(host::__WASI_ELOOP),
-            SymlinkKind::Dangling => Err(host::__WASI_ENOENT),
-            _ => fs::read_link(&self.source).map_err(errno_from_ioerror)
+            SymlinkKind::Loop => Ok(self.target.clone()),
+            SymlinkKind::Dangling => Ok(self.target.clone()),
+            _ => fs::read_link(&self.source).map_err(errno_from_ioerror),
         }
     }
 
