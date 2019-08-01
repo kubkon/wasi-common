@@ -101,7 +101,7 @@ pub(crate) fn readlinkat(dirfd: &File, path: &str) -> Result<String> {
         .and_then(|path| path.to_str().map(String::from).ok_or(host::__WASI_EILSEQ))
 }
 
-fn strip_extended_prefix<P: AsRef<OsStr>>(path: P) -> OsString {
+pub(crate) fn strip_extended_prefix<P: AsRef<OsStr>>(path: P) -> OsString {
     let path: Vec<u16> = path.as_ref().encode_wide().collect();
     if &[92, 92, 63, 92] == &path[0..4] {
         OsString::from_wide(&path[4..])

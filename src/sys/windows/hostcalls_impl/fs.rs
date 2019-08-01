@@ -13,7 +13,7 @@ use std::fs::{File, Metadata, OpenOptions};
 use std::io::{self, Seek, SeekFrom};
 use std::os::windows::fs::{FileExt, OpenOptionsExt};
 use std::os::windows::prelude::{AsRawHandle, FromRawHandle};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 fn read_at(mut file: &File, buf: &mut [u8], offset: u64) -> io::Result<usize> {
     // get current cursor position
@@ -185,7 +185,26 @@ pub(crate) fn fd_readdir(
 }
 
 pub(crate) fn path_readlink(dirfd: File, path: String, buf: &mut [u8]) -> Result<usize> {
-    unimplemented!("path_readlink")
+    use winx::file::get_path_by_handle;
+
+    let path = concatenate(&dirfd, Path::new(&path))?;
+    let target_path = std::fs::read_link(path).map_err(errno_from_ioerror)?;
+    // since on Windows we are effectively emulating 'at' syscalls
+    // we need to strip the prefix from the absolute path
+    // as otherwise we will error out since WASI is not capable
+    // of dealing with absolute paths
+    let dir_path = get_path_by_handle(dirfd.as_raw_handle()).map_err(host_impl::errno_from_win)?;
+    let dir_path = PathBuf::from(strip_extended_prefix(dir_path));
+    let target_path = target_path
+        .strip_prefix(dir_path)
+        .map_err(|_| host::__WASI_ENOTCAPABLE)
+        .and_then(|path| path.to_str().map(String::from).ok_or(host::__WASI_EILSEQ))?;
+
+    for (i, ch) in target_path.chars().enumerate() {
+        buf[i] = ch as u8;
+    }
+    
+    Ok(target_path.len())
 }
 
 pub(crate) fn path_rename(
