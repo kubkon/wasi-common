@@ -6,6 +6,7 @@ use super::SYMLINKS;
 use crate::ctx::WasiCtx;
 use crate::fdentry::FdEntry;
 use crate::helpers::systemtime_to_timestamp;
+use crate::hostcalls_impl::PathGet;
 use crate::sys::fdentry_impl::determine_type_rights;
 use crate::sys::host_impl;
 use crate::sys::{errno_from_host, errno_from_ioerror};
@@ -71,8 +72,8 @@ pub(crate) fn fd_advise(
     unimplemented!("fd_advise")
 }
 
-pub(crate) fn path_create_directory(dirfd: File, path: String) -> Result<()> {
-    let path = concatenate(&dirfd, Path::new(&path))?;
+pub(crate) fn path_create_directory(resolved: PathGet) -> Result<()> {
+    let path = concatenate(resolved.dirfd(), Path::new(resolved.path()))?;
 
     // check if symlink with that path already exists
     if let Some(_) = SYMLINKS.lock().unwrap().get(&path) {
@@ -95,18 +96,12 @@ pub(crate) fn path_create_directory(dirfd: File, path: String) -> Result<()> {
     Ok(())
 }
 
-pub(crate) fn path_link(
-    old_dirfd: File,
-    new_dirfd: File,
-    old_path: String,
-    new_path: String,
-) -> Result<()> {
+pub(crate) fn path_link(resolved_old: PathGet, resolved_new: PathGet) -> Result<()> {
     unimplemented!("path_link")
 }
 
 pub(crate) fn path_open(
-    dirfd: File,
-    path: String,
+    resolved: PathGet,
     read: bool,
     write: bool,
     oflags: host::__wasi_oflags_t,
@@ -144,7 +139,7 @@ pub(crate) fn path_open(
     access_mode.insert(add_access_mode);
     flags.insert(add_flags);
 
-    let path = concatenate(&dirfd, Path::new(&path))?;
+    let path = concatenate(resolved.dirfd(), Path::new(resolved.path()))?;
 
     if let Some(_) = SYMLINKS.lock().unwrap().get(&path) {
         return Err(host::__WASI_ELOOP);
@@ -183,10 +178,10 @@ pub(crate) fn fd_readdir(
     unimplemented!("fd_readdir")
 }
 
-pub(crate) fn path_readlink(dirfd: File, path: String, buf: &mut [u8]) -> Result<usize> {
+pub(crate) fn path_readlink(resolved: PathGet, buf: &mut [u8]) -> Result<usize> {
     use winx::file::get_path_by_handle;
 
-    let path = concatenate(&dirfd, Path::new(&path))?;
+    let path = concatenate(resolved.dirfd(), Path::new(resolved.path()))?;
 
     match SYMLINKS.lock().unwrap().get(&path) {
         Some(symlink) => {
@@ -195,8 +190,8 @@ pub(crate) fn path_readlink(dirfd: File, path: String, buf: &mut [u8]) -> Result
             // we need to strip the prefix from the absolute path
             // as otherwise we will error out since WASI is not capable
             // of dealing with absolute paths
-            let dir_path =
-                get_path_by_handle(dirfd.as_raw_handle()).map_err(host_impl::errno_from_win)?;
+            let dir_path = get_path_by_handle(resolved.dirfd().as_raw_handle())
+                .map_err(host_impl::errno_from_win)?;
             let dir_path = PathBuf::from(strip_extended_prefix(dir_path));
             let target_path = target_path
                 .strip_prefix(dir_path)
@@ -228,12 +223,7 @@ pub(crate) fn path_readlink(dirfd: File, path: String, buf: &mut [u8]) -> Result
     }
 }
 
-pub(crate) fn path_rename(
-    old_dirfd: File,
-    old_path: String,
-    new_dirfd: File,
-    new_path: String,
-) -> Result<()> {
+pub(crate) fn path_rename(resolved_old: PathGet, resolved_new: PathGet) -> Result<()> {
     unimplemented!("path_rename")
 }
 
@@ -312,17 +302,15 @@ pub(crate) fn fd_filestat_set_size(fd: &File, st_size: host::__wasi_filesize_t) 
 }
 
 pub(crate) fn path_filestat_get(
-    dirfd: File,
+    resolved: PathGet,
     dirflags: host::__wasi_lookupflags_t,
-    path: String,
 ) -> Result<host::__wasi_filestat_t> {
     unimplemented!("path_filestat_get")
 }
 
 pub(crate) fn path_filestat_set_times(
-    dirfd: File,
+    resolved: PathGet,
     dirflags: host::__wasi_lookupflags_t,
-    path: String,
     st_atim: host::__wasi_timestamp_t,
     mut st_mtim: host::__wasi_timestamp_t,
     fst_flags: host::__wasi_fstflags_t,
@@ -330,18 +318,17 @@ pub(crate) fn path_filestat_set_times(
     unimplemented!("path_filestat_set_times")
 }
 
-pub(crate) fn path_symlink(dirfd: File, old_path: &str, new_path: String) -> Result<()> {
-    use std::os::windows::fs::{symlink_dir, symlink_file};
-    let old_path = concatenate(&dirfd, Path::new(&old_path))?;
-    let new_path = concatenate(&dirfd, Path::new(&new_path))?;
+pub(crate) fn path_symlink(old_path: &str, resolved: PathGet) -> Result<()> {
+    let old_path = concatenate(resolved.dirfd(), Path::new(old_path))?;
+    let new_path = concatenate(resolved.dirfd(), Path::new(resolved.path()))?;
 
     let symlink = Symlink::new(&new_path, &old_path)?;
     SYMLINKS.lock().unwrap().insert(new_path, symlink);
     Ok(())
 }
 
-pub(crate) fn path_unlink_file(dirfd: File, path: String) -> Result<()> {
-    let path = concatenate(&dirfd, Path::new(&path))?;
+pub(crate) fn path_unlink_file(resolved: PathGet) -> Result<()> {
+    let path = concatenate(resolved.dirfd(), Path::new(resolved.path()))?;
 
     // are we trying to remove a symlink?
     if let Some(symlink) = SYMLINKS.lock().unwrap().remove(&path) {
@@ -367,8 +354,8 @@ pub(crate) fn path_unlink_file(dirfd: File, path: String) -> Result<()> {
     Ok(())
 }
 
-pub(crate) fn path_remove_directory(dirfd: File, path: String) -> Result<()> {
-    let path = concatenate(&dirfd, Path::new(&path))?;
+pub(crate) fn path_remove_directory(resolved: PathGet) -> Result<()> {
+    let path = concatenate(resolved.dirfd(), Path::new(resolved.path()))?;
 
     // are we trying to remove a symlink?
     if let Some(_) = SYMLINKS.lock().unwrap().get(&path) {

@@ -5,6 +5,21 @@ use crate::{host, Result};
 use std::fs::File;
 use std::path::{Component, Path};
 
+pub(crate) struct PathGet {
+    dirfd: File,
+    path: String,
+}
+
+impl PathGet {
+    pub(crate) fn dirfd(&self) -> &File {
+        &self.dirfd
+    }
+
+    pub(crate) fn path(&self) -> &str {
+        &self.path
+    }
+}
+
 /// Normalizes a path to ensure that the target path is located under the directory provided.
 ///
 /// This is a workaround for not having Capsicum support in the OS.
@@ -13,7 +28,7 @@ pub(crate) fn path_get(
     dirflags: host::__wasi_lookupflags_t,
     path: &str,
     needs_final_component: bool,
-) -> Result<(File, String)> {
+) -> Result<PathGet> {
     const MAX_SYMLINK_EXPANSIONS: usize = 128;
 
     if path.contains('\0') {
@@ -155,17 +170,20 @@ pub(crate) fn path_get(
                         }
 
                         // not a symlink, so we're done;
-                        return Ok((dir_stack.pop().ok_or(host::__WASI_ENOTCAPABLE)?, head));
+                        return Ok(PathGet {
+                            dirfd: dir_stack.pop().ok_or(host::__WASI_ENOTCAPABLE)?,
+                            path: head,
+                        });
                     }
                 }
             }
             None => {
                 // no further components to process. means we've hit a case like "." or "a/..", or if the
                 // input path has trailing slashes and `needs_final_component` is not set
-                return Ok((
-                    dir_stack.pop().ok_or(host::__WASI_ENOTCAPABLE)?,
-                    String::from("."),
-                ));
+                return Ok(PathGet {
+                    dirfd: dir_stack.pop().ok_or(host::__WASI_ENOTCAPABLE)?,
+                    path: String::from("."),
+                });
             }
         }
     }
