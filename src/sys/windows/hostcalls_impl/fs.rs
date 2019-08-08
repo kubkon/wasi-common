@@ -1,8 +1,6 @@
 #![allow(non_camel_case_types)]
 #![allow(unused)]
 use super::fs_helpers::*;
-use super::symlink::Symlink;
-use super::SYMLINKS;
 use crate::ctx::WasiCtx;
 use crate::fdentry::FdEntry;
 use crate::helpers::systemtime_to_timestamp;
@@ -74,26 +72,7 @@ pub(crate) fn fd_advise(
 
 pub(crate) fn path_create_directory(resolved: PathGet) -> Result<()> {
     let path = concatenate(resolved.dirfd(), Path::new(resolved.path()))?;
-
-    // check if symlink with that path already exists
-    if let Some(_) = SYMLINKS.lock().unwrap().get(&path) {
-        return Err(host::__WASI_EEXIST);
-    }
-
-    std::fs::create_dir(&path).map_err(errno_from_ioerror)?;
-
-    // check if we have a dangling symlink pointing at this path
-    if let Some(symlink) = SYMLINKS
-        .lock()
-        .unwrap()
-        .iter_mut()
-        .find(|s| s.1.target() == path && s.1.is_dangling())
-    {
-        // create a dir symlink
-        symlink.1.symlink_dir()?;
-    }
-
-    Ok(())
+    std::fs::create_dir(&path).map_err(errno_from_ioerror)
 }
 
 pub(crate) fn path_link(resolved_old: PathGet, resolved_new: PathGet) -> Result<()> {
@@ -141,33 +120,40 @@ pub(crate) fn path_open(
 
     let path = concatenate(resolved.dirfd(), Path::new(resolved.path()))?;
 
-    if let Some(_) = SYMLINKS.lock().unwrap().get(&path) {
-        return Err(host::__WASI_ELOOP);
+    match path.symlink_metadata().map(|metadata| metadata.file_type()) {
+        Ok(file_type) => {
+            // check if we are trying to open a symlink
+            if file_type.is_symlink() {
+                return Err(host::__WASI_ELOOP);
+            }
+            // check if we are trying to open a file as a dir
+            if file_type.is_file() && oflags & host::__WASI_O_DIRECTORY != 0 {
+                return Err(host::__WASI_ENOTDIR);
+            }
+        }
+        Err(e) => match e.raw_os_error() {
+            Some(e) => {
+                use winx::winerror::WinError;
+                log::debug!("path_open at symlink_metadata error code={:?}", e);
+                let e = WinError::from_u32(e as u32);
+
+                if e != WinError::ERROR_FILE_NOT_FOUND {
+                    return Err(host_impl::errno_from_win(e));
+                }
+                // file not found, let it proceed to actually
+                // trying to open it
+            }
+            None => {
+                log::debug!("Inconvertible OS error: {}", e);
+                return Err(host::__WASI_EIO);
+            }
+        },
     }
 
-    // check if we are trying to open a file as a dir
-    if path.is_file() && oflags & host::__WASI_O_DIRECTORY != 0 {
-        return Err(host::__WASI_ENOTDIR);
-    }
-
-    let f = opts
-        .access_mode(access_mode.bits())
+    opts.access_mode(access_mode.bits())
         .custom_flags(flags.bits())
         .open(&path)
-        .map_err(errno_from_ioerror)?;
-
-    // check if we have a dangling symlink pointing at this path
-    if let Some(symlink) = SYMLINKS
-        .lock()
-        .unwrap()
-        .iter_mut()
-        .find(|s| s.1.target() == path && s.1.is_dangling())
-    {
-        // create a file symlink
-        symlink.1.symlink_file()?;
-    }
-
-    Ok(f)
+        .map_err(errno_from_ioerror)
 }
 
 pub(crate) fn fd_readdir(
@@ -182,44 +168,37 @@ pub(crate) fn path_readlink(resolved: PathGet, buf: &mut [u8]) -> Result<usize> 
     use winx::file::get_path_by_handle;
 
     let path = concatenate(resolved.dirfd(), Path::new(resolved.path()))?;
+    let target_path = path.read_link().map_err(errno_from_ioerror)?;
 
-    match SYMLINKS.lock().unwrap().get(&path) {
-        Some(symlink) => {
-            let target_path = symlink.read_link()?;
-            // since on Windows we are effectively emulating 'at' syscalls
-            // we need to strip the prefix from the absolute path
-            // as otherwise we will error out since WASI is not capable
-            // of dealing with absolute paths
-            let dir_path = get_path_by_handle(resolved.dirfd().as_raw_handle())
-                .map_err(host_impl::errno_from_win)?;
-            let dir_path = PathBuf::from(strip_extended_prefix(dir_path));
-            let target_path = target_path
-                .strip_prefix(dir_path)
-                .map_err(|_| host::__WASI_ENOTCAPABLE)
-                .and_then(|path| path.to_str().map(String::from).ok_or(host::__WASI_EILSEQ))?;
+    // since on Windows we are effectively emulating 'at' syscalls
+    // we need to strip the prefix from the absolute path
+    // as otherwise we will error out since WASI is not capable
+    // of dealing with absolute paths
+    let dir_path =
+        get_path_by_handle(resolved.dirfd().as_raw_handle()).map_err(host_impl::errno_from_win)?;
+    let dir_path = PathBuf::from(strip_extended_prefix(dir_path));
+    let target_path = target_path
+        .strip_prefix(dir_path)
+        .map_err(|_| host::__WASI_ENOTCAPABLE)
+        .and_then(|path| path.to_str().map(String::from).ok_or(host::__WASI_EILSEQ))?;
 
-            if buf.len() > 0 {
-                let mut chars = target_path.chars();
-                let mut nread = 0usize;
+    if buf.len() > 0 {
+        let mut chars = target_path.chars();
+        let mut nread = 0usize;
 
-                for i in 0..buf.len() {
-                    match chars.next() {
-                        Some(ch) => {
-                            buf[i] = ch as u8;
-                            nread += 1;
-                        }
-                        None => break,
-                    }
+        for i in 0..buf.len() {
+            match chars.next() {
+                Some(ch) => {
+                    buf[i] = ch as u8;
+                    nread += 1;
                 }
-
-                Ok(nread)
-            } else {
-                Ok(0)
+                None => break,
             }
         }
-        None => {
-            return Err(host::__WASI_ENOENT);
-        }
+
+        Ok(nread)
+    } else {
+        Ok(0)
     }
 }
 
@@ -319,60 +298,74 @@ pub(crate) fn path_filestat_set_times(
 }
 
 pub(crate) fn path_symlink(old_path: &str, resolved: PathGet) -> Result<()> {
+    use std::os::windows::fs::{symlink_dir, symlink_file};
+    use winx::winerror::WinError;
+
     let old_path = concatenate(resolved.dirfd(), Path::new(old_path))?;
     let new_path = concatenate(resolved.dirfd(), Path::new(resolved.path()))?;
 
-    let symlink = Symlink::new(&new_path, &old_path)?;
-    SYMLINKS.lock().unwrap().insert(new_path, symlink);
-    Ok(())
+    // try creating a file symlink
+    symlink_file(&old_path, &new_path).or_else(|e| {
+        match e.raw_os_error() {
+            Some(e) => match WinError::from_u32(e as u32) {
+                WinError::ERROR_NOT_A_REPARSE_POINT => {
+                    // try creating a dir symlink instead
+                    symlink_dir(old_path, new_path).map_err(errno_from_ioerror)
+                }
+                e => Err(host_impl::errno_from_win(e)),
+            },
+            None => {
+                log::debug!("Inconvertible OS error: {}", e);
+                Err(host::__WASI_EIO)
+            }
+        }
+    })
 }
 
 pub(crate) fn path_unlink_file(resolved: PathGet) -> Result<()> {
+    use std::fs;
+    use winx::winerror::WinError;
+
     let path = concatenate(resolved.dirfd(), Path::new(resolved.path()))?;
+    let file_type = path
+        .symlink_metadata()
+        .map(|metadata| metadata.file_type())
+        .map_err(errno_from_ioerror)?;
 
-    // are we trying to remove a symlink?
-    if let Some(symlink) = SYMLINKS.lock().unwrap().remove(&path) {
-        return symlink.unlink();
+    // check if we're unlinking a symlink
+    // NB this will get cleaned up a lot when [std::os::windows::fs::FileTypeExt]
+    // stabilises
+    //
+    // [std::os::windows::fs::FileTypeExt]: https://doc.rust-lang.org/std/os/windows/fs/trait.FileTypeExt.html
+    if file_type.is_symlink() {
+        fs::remove_file(&path).or_else(|e| {
+            match e.raw_os_error() {
+                Some(e) => {
+                    log::debug!("path_unlink_file at symlink_file error code={:?}", e);
+                    match WinError::from_u32(e as u32) {
+                        WinError::ERROR_ACCESS_DENIED => {
+                            // try unlinking a dir symlink instead
+                            fs::remove_dir(path).map_err(errno_from_ioerror)
+                        }
+                        e => Err(host_impl::errno_from_win(e)),
+                    }
+                }
+                None => {
+                    log::debug!("Inconvertible OS error: {}", e);
+                    Err(host::__WASI_EIO)
+                }
+            }
+        })
+    } else if file_type.is_dir() {
+        Err(host::__WASI_EISDIR)
+    } else if file_type.is_file() {
+        fs::remove_file(path).map_err(errno_from_ioerror)
+    } else {
+        Err(host::__WASI_EINVAL)
     }
-
-    if path.is_dir() {
-        return Err(host::__WASI_EISDIR);
-    }
-
-    std::fs::remove_file(&path).map_err(errno_from_ioerror)?;
-
-    // are we removing target path at which one of our symlink points?
-    if let Some(symlink) = SYMLINKS
-        .lock()
-        .unwrap()
-        .iter_mut()
-        .find(|s| s.1.target() == path && s.1.is_file())
-    {
-        symlink.1.unlink_file()?;
-    }
-
-    Ok(())
 }
 
 pub(crate) fn path_remove_directory(resolved: PathGet) -> Result<()> {
     let path = concatenate(resolved.dirfd(), Path::new(resolved.path()))?;
-
-    // are we trying to remove a symlink?
-    if let Some(_) = SYMLINKS.lock().unwrap().get(&path) {
-        return Err(host::__WASI_ENOTDIR);
-    }
-
-    std::fs::remove_dir(&path).map_err(errno_from_ioerror)?;
-
-    // are we removing target path at which one of our symlink points?
-    if let Some(symlink) = SYMLINKS
-        .lock()
-        .unwrap()
-        .iter_mut()
-        .find(|s| s.1.target() == path && s.1.is_dir())
-    {
-        symlink.1.unlink_dir()?;
-    }
-
-    Ok(())
+    std::fs::remove_dir(&path).map_err(errno_from_ioerror)
 }

@@ -1,6 +1,5 @@
 #![allow(non_camel_case_types)]
-use super::SYMLINKS;
-use crate::sys::{errno_from_ioerror, host_impl};
+use crate::sys::host_impl;
 use crate::{host, Result};
 use std::ffi::{OsStr, OsString};
 use std::fs::File;
@@ -40,33 +39,36 @@ pub(crate) fn path_open_rights(
 pub(crate) fn openat(dirfd: &File, path: &str) -> Result<File> {
     use std::fs::OpenOptions;
     use std::os::windows::fs::OpenOptionsExt;
-    use winapi::um::winbase::FILE_FLAG_BACKUP_SEMANTICS;
+    use winx::file::Flags;
+    use winx::winerror::WinError;
 
     let path = concatenate(dirfd, Path::new(path))?;
-
-    if let Some(_) = SYMLINKS.lock().unwrap().get(&path) {
-        return Err(host::__WASI_ENOTDIR);
-    }
-
     OpenOptions::new()
         .read(true)
-        .custom_flags(FILE_FLAG_BACKUP_SEMANTICS)
+        .custom_flags(Flags::FILE_FLAG_BACKUP_SEMANTICS.bits())
         .open(&path)
-        .map_err(errno_from_ioerror)
-        .map_err(|e| match e {
-            host::__WASI_ENOENT | host::__WASI_EINVAL => host::__WASI_ENOTDIR,
-            e => e,
+        .map_err(|e| match e.raw_os_error() {
+            Some(e) => {
+                log::debug!("openat error={:?}", e);
+                match WinError::from_u32(e as u32) {
+                    WinError::ERROR_INVALID_NAME => host::__WASI_ENOTDIR,
+                    e => host_impl::errno_from_win(e),
+                }
+            }
+            None => {
+                log::debug!("Inconvertible OS error: {}", e);
+                host::__WASI_EIO
+            }
         })
 }
 
-pub(crate) fn readlinkat(dirfd: &File, path: &str) -> Result<String> {
+pub(crate) fn readlinkat(dirfd: &File, s_path: &str) -> Result<String> {
     use winx::file::get_path_by_handle;
+    use winx::winerror::WinError;
 
-    let path = concatenate(dirfd, Path::new(path))?;
-
-    match SYMLINKS.lock().unwrap().get(&path) {
-        Some(symlink) => {
-            let target_path = symlink.read_link()?;
+    let path = concatenate(dirfd, Path::new(s_path))?;
+    match path.read_link() {
+        Ok(target_path) => {
             // since on Windows we are effectively emulating 'at' syscalls
             // we need to strip the prefix from the absolute path
             // as otherwise we will error out since WASI is not capable
@@ -79,13 +81,31 @@ pub(crate) fn readlinkat(dirfd: &File, path: &str) -> Result<String> {
                 .map_err(|_| host::__WASI_ENOTCAPABLE)
                 .and_then(|path| path.to_str().map(String::from).ok_or(host::__WASI_EILSEQ))
         }
-        None => {
-            return if path.exists() {
-                Err(host::__WASI_EINVAL)
-            } else {
-                Err(host::__WASI_ENOTDIR)
-            };
-        }
+        Err(e) => match e.raw_os_error() {
+            Some(e) => {
+                log::debug!("readlinkat error={:?}", e);
+                match WinError::from_u32(e as u32) {
+                    WinError::ERROR_INVALID_NAME => {
+                        if s_path.ends_with("/") {
+                            // strip "/" and check if exists
+                            let path = concatenate(dirfd, Path::new(s_path.trim_end_matches("/")))?;
+                            if path.exists() && !path.is_dir() {
+                                Err(host::__WASI_ENOTDIR)
+                            } else {
+                                Err(host::__WASI_ENOENT)
+                            }
+                        } else {
+                            Err(host::__WASI_ENOENT)
+                        }
+                    }
+                    e => Err(host_impl::errno_from_win(e)),
+                }
+            }
+            None => {
+                log::debug!("Inconvertible OS error: {}", e);
+                Err(host::__WASI_EIO)
+            }
+        },
     }
 }
 

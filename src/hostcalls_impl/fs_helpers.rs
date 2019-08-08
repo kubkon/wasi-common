@@ -128,6 +128,11 @@ pub(crate) fn path_get(
                                         link_path.push_str("/");
                                     }
 
+                                    log::debug!(
+                                        "attempted symlink expansion link_path={:?}",
+                                        link_path
+                                    );
+
                                     path_stack.push(link_path);
                                 }
                                 Err(e) => {
@@ -155,13 +160,15 @@ pub(crate) fn path_get(
                                         link_path.push_str("/");
                                     }
 
-                                    log::debug!("link_path={:?}", link_path);
+                                    log::debug!(
+                                        "attempted symlink expansion link_path={:?}",
+                                        link_path
+                                    );
 
                                     path_stack.push(link_path);
                                     continue;
                                 }
                                 Err(e) => {
-                                    log::debug!("{:?}", e);
                                     if e != host::__WASI_EINVAL && e != host::__WASI_ENOENT {
                                         return Err(e);
                                     }

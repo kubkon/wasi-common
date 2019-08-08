@@ -131,6 +131,9 @@ cfg_if::cfg_if! {
         fn ignore(testsuite: &str, name: &str) -> bool {
             if testsuite == "misc_testsuite" {
                 match name {
+                    "readlink_no_buffer" => true,
+                    "nofollow_errors" => true,
+                    "symlink_loop" => true,
                     "clock_time_get" => true,
                     "truncation_rights" => true,
                     _ => false,
