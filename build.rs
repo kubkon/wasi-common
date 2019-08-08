@@ -132,7 +132,7 @@ cfg_if::cfg_if! {
             if testsuite == "misc_testsuite" {
                 match name {
                     "readlink_no_buffer" => true,
-                    "nofollow_errors" => true,
+                    "dangling_symlink" => true,
                     "symlink_loop" => true,
                     "clock_time_get" => true,
                     "truncation_rights" => true,
