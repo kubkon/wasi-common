@@ -307,13 +307,16 @@ pub(crate) fn path_symlink(old_path: &str, resolved: PathGet) -> Result<()> {
     // try creating a file symlink
     symlink_file(&old_path, &new_path).or_else(|e| {
         match e.raw_os_error() {
-            Some(e) => match WinError::from_u32(e as u32) {
-                WinError::ERROR_NOT_A_REPARSE_POINT => {
-                    // try creating a dir symlink instead
-                    symlink_dir(old_path, new_path).map_err(errno_from_ioerror)
+            Some(e) => {
+                log::debug!("path_symlink at symlink_file error code={:?}", e);
+                match WinError::from_u32(e as u32) {
+                    WinError::ERROR_NOT_A_REPARSE_POINT => {
+                        // try creating a dir symlink instead
+                        symlink_dir(old_path, new_path).map_err(errno_from_ioerror)
+                    }
+                    e => Err(host_impl::errno_from_win(e)),
                 }
-                e => Err(host_impl::errno_from_win(e)),
-            },
+            }
             None => {
                 log::debug!("Inconvertible OS error: {}", e);
                 Err(host::__WASI_EIO)

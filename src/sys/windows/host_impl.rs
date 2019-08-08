@@ -20,7 +20,7 @@ pub(crate) fn errno_from_win(error: winx::winerror::WinError) -> host::__wasi_er
         ERROR_TOO_MANY_OPEN_FILES => host::__WASI_ENFILE,
         ERROR_ACCESS_DENIED => host::__WASI_EACCES,
         ERROR_SHARING_VIOLATION => host::__WASI_EACCES,
-        ERROR_PRIVILEGE_NOT_HELD => host::__WASI_EACCES,
+        ERROR_PRIVILEGE_NOT_HELD => host::__WASI_ENOTCAPABLE, // TODO is this the correct mapping?
         ERROR_INVALID_HANDLE => host::__WASI_EBADF,
         ERROR_INVALID_NAME => host::__WASI_EINVAL,
         ERROR_NOT_ENOUGH_MEMORY => host::__WASI_ENOMEM,
