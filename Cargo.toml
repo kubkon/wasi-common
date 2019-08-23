@@ -20,7 +20,7 @@ log = "0.4"
 filetime = "0.2.7"
 
 [target.'cfg(unix)'.dependencies]
-nix = "0.15"
+nix = { git = "https://github.com/nix-rust/nix" }
 
 [target.'cfg(windows)'.dependencies]
 winx = { path = "winx" }

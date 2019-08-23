@@ -274,34 +274,20 @@ pub(crate) fn fd_readdir(
 }
 
 pub(crate) fn path_readlink(resolved: PathGet, buf: &mut [u8]) -> Result<usize> {
-    use nix::errno::Errno;
-    let path_cstr = CString::new(resolved.path().as_bytes()).map_err(|_| host::__WASI_EILSEQ)?;
+    use nix::fcntl::readlinkat;
+    use std::cmp::min;
 
-    // Linux requires that the buffer size is positive, whereas POSIX does not.
-    // Use a fake buffer to store the results if the size is zero.
-    // TODO: instead of using raw libc::readlinkat call here, this should really
-    // be fixed in `nix` crate
-    let fakebuf: &mut [u8] = &mut [0];
-    let buf_len = buf.len();
-    let len = unsafe {
-        libc::readlinkat(
-            resolved.dirfd().as_raw_fd(),
-            path_cstr.as_ptr() as *const libc::c_char,
-            if buf_len == 0 {
-                fakebuf.as_mut_ptr()
-            } else {
-                buf.as_mut_ptr()
-            } as *mut libc::c_char,
-            if buf_len == 0 { fakebuf.len() } else { buf_len },
-        )
-    };
+    let mut target = readlinkat(resolved.dirfd().as_raw_fd(), resolved.path())
+        .map_err(|err| host_impl::errno_from_nix(err.as_errno().unwrap()))
+        .and_then(host_impl::path_from_host)?;
 
-    if len < 0 {
-        Err(host_impl::errno_from_nix(Errno::last()))
-    } else {
-        let len = len as usize;
-        Ok(if len < buf_len { len } else { buf_len })
-    }
+    let nread = min(buf.len(), target.len());
+    let bytes_read = unsafe { target.as_mut_vec() };
+    // align size-wise; if read target path was shorted than the provided buffer,
+    // pad with 0s
+    bytes_read.resize(buf.len(), 0);
+    buf.copy_from_slice(&bytes_read);
+    Ok(nread)
 }
 
 pub(crate) fn path_rename(resolved_old: PathGet, resolved_new: PathGet) -> Result<()> {
