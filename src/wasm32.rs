@@ -1,10 +1,4 @@
-//! WASI types as defined in wasm32. This file was originally generated
-//! by running bindgen over wasi/core.h with a wasm32 target, and the content
-//! still largely reflects that, however it's been heavily modified, to
-//! be host-independent, to avoid exposing libc implementation details,
-//! to clean up cases where the headers use complex preprocessor macros,
-//! and to
-
+//! WASI types as defined in wasm32.
 #![allow(non_camel_case_types)]
 #![allow(non_snake_case)]
 #![allow(dead_code)]

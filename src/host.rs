@@ -1,6 +1,4 @@
-//! WASI host types as defined in host. This file was originally generated
-//! by running bindgen over wasi/core.h, and the content
-//! still largely reflects that.
+//! WASI host types as defined in host.
 #![allow(non_camel_case_types)]
 #![allow(non_snake_case)]
 use crate::Result;

@@ -1,3 +1,4 @@
+//! WASI system calls.
 mod fs;
 mod misc;
 mod sock;

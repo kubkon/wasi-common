@@ -3,8 +3,40 @@ use crate::ctx::WasiCtx;
 use crate::wasm32;
 
 hostcalls! {
+    /// Close a file descriptor.
+    ///
+    /// Note: this is similar to [`close`] in POSIX.
+    ///
+    /// ## Possible errors
+    /// * [`__WASI_EBADF`]   - The `fd` argument is not a valid file descriptor.
+    /// * [`__WASI_ENOTSUP`] - The `fd` argument is a preopened file descriptor.
+    ///
+    /// [`close`]: https://linux.die.net/man/2/close
+    /// [`__WASI_EBADF`]: ../host/constant.__WASI_EBADF.html
+    /// [`__WASI_ENOTSUP`]: ../host/constant.__WASI_ENOTSUP.html
     pub fn fd_close(wasi_ctx: &mut WasiCtx, fd: wasm32::__wasi_fd_t,) -> wasm32::__wasi_errno_t;
-
+    /// Synchronize the data of a file to disk.
+    ///
+    /// Note: this is similar to [`fdatasync`] in POSIX.
+    ///
+    /// ## Required rights:
+    /// * [`__WASI_RIGHT_FD_DATASYNC`]
+    ///
+    /// ## Possible errors
+    /// * [`__WASI_EBADF`]                    - The `fd` argument is not a valid file descriptor.
+    /// * [`__WASI_EIO`]                      - An I/O error occurred.
+    /// * [`__WASI_EINVAL`], [`__WASI_EROFS`] - The `fd` is bound to a special file which does not
+    ///                                         support synchronization.
+    /// * [`__WASI_ENOTCAPABLE`]              - The `fd` file descriptor lacks the required rights
+    ///                                         to perform datasync operation.
+    ///
+    /// [`fdatasync`]: https://linux.die.net/man/2/fdatasync
+    /// [`__WASI_RIGHT_FD_DATASYNC`]: ../host/constant.__WASI_RIGHT_FD_DATASYNC.html
+    /// [`__WASI_EBADF`]: ../host/constant.__WASI_EBADF.html
+    /// [`__WASI_EIO`]: ../host/constant.__WASI_EIO.html
+    /// [`__WASI_EINVAL`]: ../host/constant.__WASI_EINVAL.html
+    /// [`__WASI_EROFS`]: ../host/constant.__WASI_EROFS.html
+    /// [`__WASI_ENOTCAPABLE`]: ../host/constant.__WASI_ENOTCAPABLE.html
     pub fn fd_datasync(wasi_ctx: &WasiCtx, fd: wasm32::__wasi_fd_t,) -> wasm32::__wasi_errno_t;
 
     pub fn fd_pread(
