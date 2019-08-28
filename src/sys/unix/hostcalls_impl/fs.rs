@@ -1,16 +1,21 @@
 #![allow(non_camel_case_types)]
 #![allow(unused_unsafe)]
 use super::fs_helpers::*;
+use crate::fdentry::FdEntry;
 use crate::helpers::systemtime_to_timestamp;
 use crate::hostcalls_impl::PathGet;
 use crate::sys::host_impl;
 use crate::{host, Error, Result};
 use nix::libc::{self, c_long, c_void};
+use std::collections::HashMap;
 use std::convert::TryInto;
 use std::ffi::CString;
 use std::fs::{File, Metadata};
 use std::os::unix::fs::FileExt;
-use std::os::unix::prelude::{AsRawFd, FromRawFd};
+use std::os::unix::prelude::{AsRawFd, FromRawFd, RawFd};
+use std::sync::atomic::AtomicPtr;
+use std::sync::atomic::Ordering::SeqCst;
+use std::sync::{Arc, RwLock};
 
 pub(crate) fn fd_pread(
     file: &File,
@@ -249,6 +254,7 @@ pub(crate) fn path_open(
     Ok(unsafe { File::from_raw_fd(new_fd) })
 }
 
+#[cfg(target_os = "linux")]
 pub(crate) fn fd_readdir(
     fd: &File,
     host_buf: &mut [u8],
@@ -306,6 +312,106 @@ pub(crate) fn fd_readdir(
         host_buf_offset += name_len;
         left -= required_space;
     }
+    Ok(host_buf_len - left)
+}
+
+#[cfg(not(target_os = "linux"))]
+lazy_static::lazy_static! {
+    static ref DIRP_CACHE: Arc<RwLock<HashMap<RawFd, AtomicPtr<libc::DIR>>>> = Arc::new(RwLock::new(HashMap::new()));
+}
+
+#[cfg(not(target_os = "linux"))]
+fn fetch_from_cache<Fd: AsRawFd>(fd: &Fd) -> *mut libc::DIR {
+    {
+        let dirps = DIRP_CACHE.read().unwrap();
+        if let Some(dirp) = dirps.get(&fd.as_raw_fd()) {
+            return dirp.load(SeqCst);
+        }
+    }
+
+    let dirp = unsafe { libc::fdopendir(fd.as_raw_fd()) };
+    let mut dirps = DIRP_CACHE.write().unwrap();
+    dirps.insert(fd.as_raw_fd(), AtomicPtr::new(dirp));
+    return dirp;
+}
+
+#[cfg(not(target_os = "linux"))]
+pub(crate) fn remove_from_cache(fd: &FdEntry) {
+    if let Some(fd) = fd.fd_object.descriptor.as_file().ok() {
+        let mut dirps = DIRP_CACHE.write().unwrap();
+        dirps.remove(&fd.as_raw_fd());
+    }
+}
+
+#[cfg(not(target_os = "linux"))]
+pub(crate) fn fd_readdir(
+    fd: &File,
+    host_buf: &mut [u8],
+    cookie: host::__wasi_dircookie_t,
+) -> Result<usize> {
+    use libc::{memcpy, readdir, rewinddir, seekdir, telldir};
+    use nix::errno::Errno;
+
+    let dir = fetch_from_cache(fd);
+    let host_buf_ptr = host_buf.as_mut_ptr();
+    let host_buf_len = host_buf.len();
+
+    if cookie != host::__WASI_DIRCOOKIE_START {
+        unsafe { seekdir(dir, cookie as c_long) };
+    } else {
+        unsafe { rewinddir(dir) };
+    }
+
+    let mut left = host_buf_len;
+    let mut host_buf_offset: usize = 0;
+
+    loop {
+        let host_entry = unsafe { readdir(dir) };
+        if host_entry.is_null() {
+            // FIXME
+            // Currently, these are verified to be correct on macOS.
+            // Need to still verify these on other BSD-based OSes.
+            match Errno::last() {
+                Errno::EBADF => return Err(host::__WASI_EBADF),
+                Errno::EFAULT => return Err(host::__WASI_EFAULT),
+                Errno::EIO => return Err(host::__WASI_EIO),
+                _ => break, // not an error
+            }
+        }
+
+        let mut entry: host::__wasi_dirent_t =
+            host_impl::dirent_from_host(&unsafe { *host_entry })?;
+        // Set d_next manually:
+        // * on macOS d_seekoff is not set for some reason
+        // * on FreeBSD d_seekoff doesn't exist; there is d_off but it is
+        //   not equivalent to the value read from telldir call
+        entry.d_next = unsafe { telldir(dir) } as host::__wasi_dircookie_t;
+
+        log::debug!("entry = {:?}", entry);
+
+        let name_len = entry.d_namlen as usize;
+        let required_space = std::mem::size_of_val(&entry) + name_len;
+        if required_space > left {
+            break;
+        }
+        unsafe {
+            let ptr = host_buf_ptr.offset(host_buf_offset as isize) as *mut c_void
+                as *mut host::__wasi_dirent_t;
+            *ptr = entry;
+        }
+        host_buf_offset += std::mem::size_of_val(&entry);
+        let name_ptr = unsafe { *host_entry }.d_name.as_ptr();
+        unsafe {
+            memcpy(
+                host_buf_ptr.offset(host_buf_offset as isize) as *mut _,
+                name_ptr as *const _,
+                name_len,
+            )
+        };
+        host_buf_offset += name_len;
+        left -= required_space;
+    }
+
     Ok(host_buf_len - left)
 }
 

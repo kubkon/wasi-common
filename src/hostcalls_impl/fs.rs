@@ -25,6 +25,10 @@ pub(crate) fn fd_close(wasi_ctx: &mut WasiCtx, fd: wasm32::__wasi_fd_t) -> Resul
     }
 
     let mut fe = wasi_ctx.fds.remove(&fd).ok_or(Error::EBADF)?;
+
+    #[cfg(not(any(target_os = "linux", target_os = "windows")))]
+    hostcalls_impl::remove_from_cache(&fe);
+
     fe.fd_object.needs_close = true;
 
     Ok(())
