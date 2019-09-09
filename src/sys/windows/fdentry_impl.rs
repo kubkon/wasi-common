@@ -7,7 +7,7 @@ use std::os::windows::prelude::{AsRawHandle, FromRawHandle, RawHandle};
 impl AsRawHandle for Descriptor {
     fn as_raw_handle(&self) -> RawHandle {
         match self {
-            Descriptor::File(f) => f.as_raw_handle(),
+            Descriptor::File { file, .. } => file.as_raw_handle(),
             Descriptor::Stdin => io::stdin().as_raw_handle(),
             Descriptor::Stdout => io::stdout().as_raw_handle(),
             Descriptor::Stderr => io::stderr().as_raw_handle(),

@@ -1,29 +1,82 @@
 use crate::sys::fdentry_impl;
 use crate::{host, Error, Result};
-
+use cfg_if::cfg_if;
 use std::mem::ManuallyDrop;
 use std::path::PathBuf;
 use std::{fs, io};
 
-#[derive(Debug)]
-pub enum Descriptor {
-    File(fs::File),
-    Stdin,
-    Stdout,
-    Stderr,
+cfg_if! {
+    if #[cfg(any(
+        target_os = "macos",
+        target_os = "freebsd",
+        target_os = "netbsd",
+        target_os = "openbsd",
+        target_os = "ios",
+        target_os = "dragonfly"
+    ))] {
+        use std::sync::Mutex;
+
+        #[derive(Debug)]
+        pub struct DirStream {
+            pub file: ManuallyDrop<fs::File>,
+            pub dir_ptr: *mut libc::DIR,
+        }
+
+        impl Drop for DirStream {
+            fn drop(&mut self) {
+                unsafe { libc::closedir(self.dir_ptr) };
+            }
+        }
+
+        #[derive(Debug)]
+        pub enum Descriptor {
+            File {
+                file: fs::File,
+                dir_stream: Option<Mutex<DirStream>>,
+            },
+            Stdin,
+            Stdout,
+            Stderr,
+        }
+
+        impl From<fs::File> for Descriptor {
+            fn from(file: fs::File) -> Self {
+                Descriptor::File {
+                    file,
+                    dir_stream: None
+                }
+            }
+        }
+    } else {
+        #[derive(Debug)]
+        pub enum Descriptor {
+            File {
+                file: fs::File,
+            },
+            Stdin,
+            Stdout,
+            Stderr,
+        }
+
+        impl From<fs::File> for Descriptor {
+            fn from(file: fs::File) -> Self {
+                Descriptor::File { file }
+            }
+        }
+    }
 }
 
 impl Descriptor {
     pub fn as_file(&self) -> Result<&fs::File> {
         match self {
-            Descriptor::File(f) => Ok(f),
+            Descriptor::File { file, .. } => Ok(file),
             _ => Err(Error::EBADF),
         }
     }
 
     pub fn is_file(&self) -> bool {
         match self {
-            Descriptor::File(_) => true,
+            Descriptor::File { .. } => true,
             _ => false,
         }
     }
@@ -80,7 +133,7 @@ impl FdEntry {
             |(file_type, rights_base, rights_inheriting)| Self {
                 fd_object: FdObject {
                     file_type,
-                    descriptor: ManuallyDrop::new(Descriptor::File(file)),
+                    descriptor: ManuallyDrop::new(Descriptor::from(file)),
                     needs_close: true,
                 },
                 rights_base,

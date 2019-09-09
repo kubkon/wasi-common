@@ -1,21 +1,18 @@
 #![allow(non_camel_case_types)]
 #![allow(unused_unsafe)]
 use super::fs_helpers::*;
-use crate::fdentry::FdEntry;
+use crate::fdentry::Descriptor;
 use crate::helpers::systemtime_to_timestamp;
 use crate::hostcalls_impl::PathGet;
 use crate::sys::host_impl;
 use crate::{host, Error, Result};
+use cfg_if::cfg_if;
 use nix::libc::{self, c_long, c_void};
-use std::collections::HashMap;
 use std::convert::TryInto;
 use std::ffi::CString;
 use std::fs::{File, Metadata};
 use std::os::unix::fs::FileExt;
-use std::os::unix::prelude::{AsRawFd, FromRawFd, RawFd};
-use std::sync::atomic::AtomicPtr;
-use std::sync::atomic::Ordering::SeqCst;
-use std::sync::{Arc, RwLock};
+use std::os::unix::prelude::{AsRawFd, FromRawFd};
 
 pub(crate) fn fd_pread(
     file: &File,
@@ -44,94 +41,6 @@ pub(crate) fn fd_fdstat_set_flags(fd: &File, fdflags: host::__wasi_fdflags_t) ->
         Ok(_) => Ok(()),
         Err(e) => Err(host_impl::errno_from_nix(e.as_errno().unwrap())),
     }
-}
-
-#[cfg(target_os = "linux")]
-pub(crate) fn fd_advise(
-    file: &File,
-    advice: host::__wasi_advice_t,
-    offset: host::__wasi_filesize_t,
-    len: host::__wasi_filesize_t,
-) -> Result<()> {
-    {
-        use nix::fcntl::{posix_fadvise, PosixFadviseAdvice};
-
-        let offset = offset.try_into()?;
-        let len = len.try_into()?;
-        let host_advice = match advice {
-            host::__WASI_ADVICE_DONTNEED => PosixFadviseAdvice::POSIX_FADV_DONTNEED,
-            host::__WASI_ADVICE_SEQUENTIAL => PosixFadviseAdvice::POSIX_FADV_SEQUENTIAL,
-            host::__WASI_ADVICE_WILLNEED => PosixFadviseAdvice::POSIX_FADV_WILLNEED,
-            host::__WASI_ADVICE_NOREUSE => PosixFadviseAdvice::POSIX_FADV_NOREUSE,
-            host::__WASI_ADVICE_RANDOM => PosixFadviseAdvice::POSIX_FADV_RANDOM,
-            host::__WASI_ADVICE_NORMAL => PosixFadviseAdvice::POSIX_FADV_NORMAL,
-            _ => return Err(Error::EINVAL),
-        };
-
-        posix_fadvise(file.as_raw_fd(), offset, len, host_advice)?;
-    }
-
-    Ok(())
-}
-
-#[cfg(not(any(target_os = "linux", target_os = "macos")))]
-pub(crate) fn fd_advise(
-    _file: &File,
-    advice: host::__wasi_advice_t,
-    _offset: host::__wasi_filesize_t,
-    _len: host::__wasi_filesize_t,
-) -> Result<()> {
-    match advice {
-        host::__WASI_ADVICE_DONTNEED
-        | host::__WASI_ADVICE_SEQUENTIAL
-        | host::__WASI_ADVICE_WILLNEED
-        | host::__WASI_ADVICE_NOREUSE
-        | host::__WASI_ADVICE_RANDOM
-        | host::__WASI_ADVICE_NORMAL => {}
-        _ => return Err(Error::EINVAL),
-    }
-
-    Ok(())
-}
-
-#[cfg(target_os = "macos")]
-pub(crate) fn fd_advise(
-    file: &File,
-    advice: host::__wasi_advice_t,
-    offset: host::__wasi_filesize_t,
-    len: host::__wasi_filesize_t,
-) -> Result<()> {
-    use nix::errno::Errno;
-
-    match advice {
-        host::__WASI_ADVICE_DONTNEED => return Ok(()),
-        // unfortunately, the advisory syscall in macOS doesn't take any flags of this
-        // sort (unlike on Linux), hence, they are left here as a noop
-        host::__WASI_ADVICE_SEQUENTIAL
-        | host::__WASI_ADVICE_WILLNEED
-        | host::__WASI_ADVICE_NOREUSE
-        | host::__WASI_ADVICE_RANDOM
-        | host::__WASI_ADVICE_NORMAL => {}
-        _ => return Err(Error::EINVAL),
-    }
-
-    // From macOS man pages:
-    // F_RDADVISE   Issue an advisory read async with no copy to user.
-    //
-    // The F_RDADVISE command operates on the following structure which holds information passed from
-    // the user to the system:
-    //
-    // struct radvisory {
-    //      off_t   ra_offset;  /* offset into the file */
-    //      int     ra_count;   /* size of the read     */
-    // };
-    let advisory = libc::radvisory {
-        ra_offset: offset.try_into()?,
-        ra_count: len.try_into()?,
-    };
-
-    let res = unsafe { libc::fcntl(file.as_raw_fd(), libc::F_RDADVISE, &advisory) };
-    Errno::result(res).map(|_| ()).map_err(Error::from)
 }
 
 pub(crate) fn path_create_directory(resolved: PathGet) -> Result<()> {
@@ -254,165 +163,250 @@ pub(crate) fn path_open(
     Ok(unsafe { File::from_raw_fd(new_fd) })
 }
 
-#[cfg(target_os = "linux")]
-pub(crate) fn fd_readdir(
-    fd: &File,
-    host_buf: &mut [u8],
-    cookie: host::__wasi_dircookie_t,
-) -> Result<usize> {
-    use libc::{dirent, fdopendir, memcpy, readdir_r, rewinddir, seekdir};
+cfg_if! {
+    if #[cfg(target_os = "linux")] {
+        pub(crate) fn fd_readdir(
+            fd: &mut Descriptor,
+            host_buf: &mut [u8],
+            cookie: host::__wasi_dircookie_t,
+        ) -> Result<usize> {
+            use libc::{dirent, fdopendir, memcpy, readdir_r, rewinddir, seekdir};
 
-    let host_buf_ptr = host_buf.as_mut_ptr();
-    let host_buf_len = host_buf.len();
-    let dir = unsafe { fdopendir(fd.as_raw_fd()) };
-    if dir.is_null() {
-        return Err(host_impl::errno_from_nix(nix::errno::Errno::last()));
-    }
-
-    if cookie != host::__WASI_DIRCOOKIE_START {
-        unsafe { seekdir(dir, cookie as c_long) };
-    } else {
-        // If cookie set to __WASI_DIRCOOKIE_START, rewind the dir ptr
-        // to the start of the stream.
-        unsafe { rewinddir(dir) };
-    }
-
-    let mut entry_buf = unsafe { std::mem::uninitialized::<dirent>() };
-    let mut left = host_buf_len;
-    let mut host_buf_offset: usize = 0;
-    while left > 0 {
-        let mut host_entry: *mut dirent = std::ptr::null_mut();
-        let res = unsafe { readdir_r(dir, &mut entry_buf, &mut host_entry) };
-        if res == -1 {
-            return Err(host_impl::errno_from_nix(nix::errno::Errno::last()));
-        }
-        if host_entry.is_null() {
-            break;
-        }
-        let entry: host::__wasi_dirent_t = host_impl::dirent_from_host(&unsafe { *host_entry })?;
-        let name_len = entry.d_namlen as usize;
-        let required_space = std::mem::size_of_val(&entry) + name_len;
-        if required_space > left {
-            break;
-        }
-        unsafe {
-            let ptr =
-                host_buf_ptr.add(host_buf_offset) as *mut c_void as *mut host::__wasi_dirent_t;
-            *ptr = entry;
-        }
-        host_buf_offset += std::mem::size_of_val(&entry);
-        let name_ptr = unsafe { *host_entry }.d_name.as_ptr();
-        unsafe {
-            memcpy(
-                host_buf_ptr.add(host_buf_offset) as *mut _,
-                name_ptr as *const _,
-                name_len,
-            )
-        };
-        host_buf_offset += name_len;
-        left -= required_space;
-    }
-    Ok(host_buf_len - left)
-}
-
-#[cfg(not(target_os = "linux"))]
-lazy_static::lazy_static! {
-    static ref DIRP_CACHE: Arc<RwLock<HashMap<RawFd, AtomicPtr<libc::DIR>>>> = Arc::new(RwLock::new(HashMap::new()));
-}
-
-#[cfg(not(target_os = "linux"))]
-fn fetch_from_cache<Fd: AsRawFd>(fd: &Fd) -> *mut libc::DIR {
-    {
-        let dirps = DIRP_CACHE.read().unwrap();
-        if let Some(dirp) = dirps.get(&fd.as_raw_fd()) {
-            return dirp.load(SeqCst);
-        }
-    }
-
-    let dirp = unsafe { libc::fdopendir(fd.as_raw_fd()) };
-    let mut dirps = DIRP_CACHE.write().unwrap();
-    dirps.insert(fd.as_raw_fd(), AtomicPtr::new(dirp));
-    return dirp;
-}
-
-#[cfg(not(target_os = "linux"))]
-pub(crate) fn remove_from_cache(fd: &FdEntry) {
-    if let Some(fd) = fd.fd_object.descriptor.as_file().ok() {
-        let mut dirps = DIRP_CACHE.write().unwrap();
-        dirps.remove(&fd.as_raw_fd());
-    }
-}
-
-#[cfg(not(target_os = "linux"))]
-pub(crate) fn fd_readdir(
-    fd: &File,
-    host_buf: &mut [u8],
-    cookie: host::__wasi_dircookie_t,
-) -> Result<usize> {
-    use libc::{memcpy, readdir, rewinddir, seekdir, telldir};
-    use nix::errno::Errno;
-
-    let dir = fetch_from_cache(fd);
-    let host_buf_ptr = host_buf.as_mut_ptr();
-    let host_buf_len = host_buf.len();
-
-    if cookie != host::__WASI_DIRCOOKIE_START {
-        unsafe { seekdir(dir, cookie as c_long) };
-    } else {
-        unsafe { rewinddir(dir) };
-    }
-
-    let mut left = host_buf_len;
-    let mut host_buf_offset: usize = 0;
-
-    loop {
-        let host_entry = unsafe { readdir(dir) };
-        if host_entry.is_null() {
-            // FIXME
-            // Currently, these are verified to be correct on macOS.
-            // Need to still verify these on other BSD-based OSes.
-            match Errno::last() {
-                Errno::EBADF => return Err(host::__WASI_EBADF),
-                Errno::EFAULT => return Err(host::__WASI_EFAULT),
-                Errno::EIO => return Err(host::__WASI_EIO),
-                _ => break, // not an error
+            let host_buf_ptr = host_buf.as_mut_ptr();
+            let host_buf_len = host_buf.len();
+            let dir = unsafe { fdopendir(fd.as_file()?.as_raw_fd()) };
+            if dir.is_null() {
+                return Err(host_impl::errno_from_nix(nix::errno::Errno::last()));
             }
+
+            if cookie != host::__WASI_DIRCOOKIE_START {
+                unsafe { seekdir(dir, cookie as c_long) };
+            } else {
+                // If cookie set to __WASI_DIRCOOKIE_START, rewind the dir ptr
+                // to the start of the stream.
+                unsafe { rewinddir(dir) };
+            }
+
+            let mut entry_buf = unsafe { std::mem::uninitialized::<dirent>() };
+            let mut left = host_buf_len;
+            let mut host_buf_offset: usize = 0;
+            while left > 0 {
+                let mut host_entry: *mut dirent = std::ptr::null_mut();
+                let res = unsafe { readdir_r(dir, &mut entry_buf, &mut host_entry) };
+                if res == -1 {
+                    return Err(host_impl::errno_from_nix(nix::errno::Errno::last()));
+                }
+                if host_entry.is_null() {
+                    break;
+                }
+                let entry: host::__wasi_dirent_t = host_impl::dirent_from_host(&unsafe { *host_entry })?;
+                let name_len = entry.d_namlen as usize;
+                let required_space = std::mem::size_of_val(&entry) + name_len;
+                if required_space > left {
+                    break;
+                }
+                unsafe {
+                    let ptr = host_buf_ptr.offset(host_buf_offset as isize) as *mut c_void
+                        as *mut host::__wasi_dirent_t;
+                    *ptr = entry;
+                }
+                host_buf_offset += std::mem::size_of_val(&entry);
+                let name_ptr = unsafe { *host_entry }.d_name.as_ptr();
+                unsafe {
+                    memcpy(
+                        host_buf_ptr.offset(host_buf_offset as isize) as *mut _,
+                        name_ptr as *const _,
+                        name_len,
+                    )
+                };
+                host_buf_offset += name_len;
+                left -= required_space;
+            }
+            Ok(host_buf_len - left)
         }
 
-        let mut entry: host::__wasi_dirent_t =
-            host_impl::dirent_from_host(&unsafe { *host_entry })?;
-        // Set d_next manually:
-        // * on macOS d_seekoff is not set for some reason
-        // * on FreeBSD d_seekoff doesn't exist; there is d_off but it is
-        //   not equivalent to the value read from telldir call
-        entry.d_next = unsafe { telldir(dir) } as host::__wasi_dircookie_t;
+        pub(crate) fn fd_advise(
+            file: &File,
+            advice: host::__wasi_advice_t,
+            offset: host::__wasi_filesize_t,
+            len: host::__wasi_filesize_t,
+        ) -> Result<()> {
+            {
+                use nix::fcntl::{posix_fadvise, PosixFadviseAdvice};
 
-        log::debug!("entry = {:?}", entry);
+                let offset = offset.try_into()?;
+                let len = len.try_into()?;
+                let host_advice = match advice {
+                    host::__WASI_ADVICE_DONTNEED => PosixFadviseAdvice::POSIX_FADV_DONTNEED,
+                    host::__WASI_ADVICE_SEQUENTIAL => PosixFadviseAdvice::POSIX_FADV_SEQUENTIAL,
+                    host::__WASI_ADVICE_WILLNEED => PosixFadviseAdvice::POSIX_FADV_WILLNEED,
+                    host::__WASI_ADVICE_NOREUSE => PosixFadviseAdvice::POSIX_FADV_NOREUSE,
+                    host::__WASI_ADVICE_RANDOM => PosixFadviseAdvice::POSIX_FADV_RANDOM,
+                    host::__WASI_ADVICE_NORMAL => PosixFadviseAdvice::POSIX_FADV_NORMAL,
+                    _ => return Err(Error::EINVAL),
+                };
 
-        let name_len = entry.d_namlen as usize;
-        let required_space = std::mem::size_of_val(&entry) + name_len;
-        if required_space > left {
-            break;
+                posix_fadvise(file.as_raw_fd(), offset, len, host_advice)?;
+            }
+
+            Ok(())
         }
-        unsafe {
-            let ptr = host_buf_ptr.offset(host_buf_offset as isize) as *mut c_void
-                as *mut host::__wasi_dirent_t;
-            *ptr = entry;
+    } else if #[cfg(any(
+        target_os = "macos",
+        target_os = "freebsd",
+        target_os = "openbsd",
+        target_os = "netbsd",
+        target_os = "ios",
+        target_os = "dragonfly"
+    ))] {
+        pub(crate) fn fd_readdir(
+            fd: &mut Descriptor,
+            host_buf: &mut [u8],
+            cookie: host::__wasi_dircookie_t,
+        ) -> Result<usize> {
+            use libc::{fdopendir, memcpy, readdir, rewinddir, seekdir, telldir};
+            use nix::errno::Errno;
+            use std::sync::Mutex;
+            use crate::fdentry::DirStream;
+            use std::mem::ManuallyDrop;
+
+            let (file, dir_stream) = match fd {
+                Descriptor::File { file, dir_stream } => (file, dir_stream),
+                _ => return Err(Error::EBADF),
+            };
+
+            if dir_stream.is_none() {
+                let file = file.try_clone()?;
+                let dir_ptr = unsafe { fdopendir(file.as_raw_fd()) };
+                *dir_stream = Some(Mutex::new(DirStream {
+                    file: ManuallyDrop::new(file),
+                    dir_ptr
+                }));
+            }
+            let dir_stream = dir_stream.as_mut().unwrap().lock().unwrap();
+
+            let host_buf_ptr = host_buf.as_mut_ptr();
+            let host_buf_len = host_buf.len();
+
+            if cookie != host::__WASI_DIRCOOKIE_START {
+                unsafe { seekdir(dir_stream.dir_ptr, cookie as c_long) };
+            } else {
+                unsafe { rewinddir(dir_stream.dir_ptr) };
+            }
+
+            let mut left = host_buf_len;
+            let mut host_buf_offset: usize = 0;
+
+            loop {
+                let host_entry = unsafe { readdir(dir_stream.dir_ptr) };
+                if host_entry.is_null() {
+                    // FIXME
+                    // Currently, these are verified to be correct on macOS.
+                    // Need to still verify these on other BSD-based OSes.
+                    match Errno::last() {
+                        Errno::EBADF => return Err(Error::EBADF),
+                        Errno::EFAULT => return Err(Error::EFAULT),
+                        Errno::EIO => return Err(Error::EIO),
+                        _ => break, // not an error
+                    }
+                }
+
+                let mut entry: host::__wasi_dirent_t =
+                    host_impl::dirent_from_host(&unsafe { *host_entry })?;
+                // Set d_next manually:
+                // * on macOS d_seekoff is not set for some reason
+                // * on FreeBSD d_seekoff doesn't exist; there is d_off but it is
+                //   not equivalent to the value read from telldir call
+                entry.d_next = unsafe { telldir(dir_stream.dir_ptr) } as host::__wasi_dircookie_t;
+
+                log::debug!("entry = {:?}", entry);
+
+                let name_len = entry.d_namlen as usize;
+                let required_space = std::mem::size_of_val(&entry) + name_len;
+                if required_space > left {
+                    break;
+                }
+                unsafe {
+                    let ptr = host_buf_ptr.offset(host_buf_offset as isize) as *mut c_void
+                        as *mut host::__wasi_dirent_t;
+                    *ptr = entry;
+                }
+                host_buf_offset += std::mem::size_of_val(&entry);
+                let name_ptr = unsafe { *host_entry }.d_name.as_ptr();
+                unsafe {
+                    memcpy(
+                        host_buf_ptr.offset(host_buf_offset as isize) as *mut _,
+                        name_ptr as *const _,
+                        name_len,
+                    )
+                };
+                host_buf_offset += name_len;
+                left -= required_space;
+            }
+
+            Ok(host_buf_len - left)
         }
-        host_buf_offset += std::mem::size_of_val(&entry);
-        let name_ptr = unsafe { *host_entry }.d_name.as_ptr();
-        unsafe {
-            memcpy(
-                host_buf_ptr.offset(host_buf_offset as isize) as *mut _,
-                name_ptr as *const _,
-                name_len,
-            )
-        };
-        host_buf_offset += name_len;
-        left -= required_space;
+
+        #[cfg(target_os = "macos")]
+        pub(crate) fn fd_advise(
+            file: &File,
+            advice: host::__wasi_advice_t,
+            offset: host::__wasi_filesize_t,
+            len: host::__wasi_filesize_t,
+        ) -> Result<()> {
+            use nix::errno::Errno;
+
+            match advice {
+                host::__WASI_ADVICE_DONTNEED => return Ok(()),
+                // unfortunately, the advisory syscall in macOS doesn't take any flags of this
+                // sort (unlike on Linux), hence, they are left here as a noop
+                host::__WASI_ADVICE_SEQUENTIAL
+                | host::__WASI_ADVICE_WILLNEED
+                | host::__WASI_ADVICE_NOREUSE
+                | host::__WASI_ADVICE_RANDOM
+                | host::__WASI_ADVICE_NORMAL => {}
+                _ => return Err(Error::EINVAL),
+            }
+
+            // From macOS man pages:
+            // F_RDADVISE   Issue an advisory read async with no copy to user.
+            //
+            // The F_RDADVISE command operates on the following structure which holds information passed from
+            // the user to the system:
+            //
+            // struct radvisory {
+            //      off_t   ra_offset;  /* offset into the file */
+            //      int     ra_count;   /* size of the read     */
+            // };
+            let advisory = libc::radvisory {
+                ra_offset: offset.try_into()?,
+                ra_count: len.try_into()?,
+            };
+
+            let res = unsafe { libc::fcntl(file.as_raw_fd(), libc::F_RDADVISE, &advisory) };
+            Errno::result(res).map(|_| ()).map_err(Error::from)
+        }
+
+        #[cfg(not(target_os = "macos"))]
+        pub(crate) fn fd_advise(
+            _file: &File,
+            advice: host::__wasi_advice_t,
+            _offset: host::__wasi_filesize_t,
+            _len: host::__wasi_filesize_t,
+        ) -> Result<()> {
+            match advice {
+                host::__WASI_ADVICE_DONTNEED
+                | host::__WASI_ADVICE_SEQUENTIAL
+                | host::__WASI_ADVICE_WILLNEED
+                | host::__WASI_ADVICE_NOREUSE
+                | host::__WASI_ADVICE_RANDOM
+                | host::__WASI_ADVICE_NORMAL => {}
+                _ => return Err(Error::EINVAL),
+            }
+
+            Ok(())
+        }
     }
-
-    Ok(host_buf_len - left)
 }
 
 pub(crate) fn path_readlink(resolved: PathGet, buf: &mut [u8]) -> Result<usize> {

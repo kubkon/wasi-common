@@ -25,10 +25,6 @@ pub(crate) fn fd_close(wasi_ctx: &mut WasiCtx, fd: wasm32::__wasi_fd_t) -> Resul
     }
 
     let mut fe = wasi_ctx.fds.remove(&fd).ok_or(Error::EBADF)?;
-
-    #[cfg(not(any(target_os = "linux", target_os = "windows")))]
-    hostcalls_impl::remove_from_cache(&fe);
-
     fe.fd_object.needs_close = true;
 
     Ok(())
@@ -162,7 +158,7 @@ pub(crate) fn fd_read(
         .collect();
 
     let maybe_host_nread = match &mut *fe.fd_object.descriptor {
-        Descriptor::File(f) => f.read_vectored(&mut iovs),
+        Descriptor::File { file, .. } => file.read_vectored(&mut iovs),
         Descriptor::Stdin => io::stdin().lock().read_vectored(&mut iovs),
         _ => return Err(Error::EBADF),
     };
@@ -381,7 +377,7 @@ pub(crate) fn fd_write(
 
     // perform unbuffered writes
     let host_nwritten = match &mut *fe.fd_object.descriptor {
-        Descriptor::File(f) => f.write_vectored(&iovs)?,
+        Descriptor::File { file, .. } => file.write_vectored(&iovs)?,
         Descriptor::Stdin => return Err(Error::EBADF),
         Descriptor::Stdout => {
             // lock for the duration of the scope
@@ -599,7 +595,7 @@ pub(crate) fn path_open(
 }
 
 pub(crate) fn fd_readdir(
-    wasi_ctx: &WasiCtx,
+    wasi_ctx: &mut WasiCtx,
     memory: &mut [u8],
     fd: wasm32::__wasi_fd_t,
     buf: wasm32::uintptr_t,
@@ -619,17 +615,16 @@ pub(crate) fn fd_readdir(
     enc_usize_byref(memory, buf_used, 0)?;
 
     let fd = dec_fd(fd);
-    let fd = wasi_ctx
-        .get_fd_entry(fd, host::__WASI_RIGHT_FD_READDIR, 0)
-        .and_then(|fe| fe.fd_object.descriptor.as_file())?;
-
+    let descriptor = wasi_ctx
+        .get_fd_entry_mut(fd, host::__WASI_RIGHT_FD_READDIR, 0)
+        .map(|entry| &mut *entry.fd_object.descriptor)?;
     let host_buf = dec_slice_of_mut::<u8>(memory, buf, buf_len)?;
 
     trace!("     | (buf,buf_len)={:?}", host_buf);
 
     let cookie = dec_dircookie(cookie);
 
-    let host_bufused = hostcalls_impl::fd_readdir(fd, host_buf, cookie)?;
+    let host_bufused = hostcalls_impl::fd_readdir(descriptor, host_buf, cookie)?;
 
     trace!("     | *buf_used={:?}", host_bufused);
 
