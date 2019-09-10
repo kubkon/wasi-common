@@ -12,9 +12,8 @@ use std::{io, path::Path};
 /// `remove_file`, `rename`, `set_permissions`, `symlink_metadata`, and
 /// `write`.
 ///
-/// Unlike `std::fs`, this API has no `canonicalize`, because
-/// absolute paths don't interoperate well with the capability-oriented
-/// security model.
+/// Unlike `std::fs`, this API has no `canonicalize`, because absolute paths
+/// don't interoperate well with the capability-oriented security model.
 pub struct Dir<'ctx> {
     ctx: &'ctx mut WasiCtx,
     fd: host::__wasi_fd_t,
