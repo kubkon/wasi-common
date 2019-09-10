@@ -17,7 +17,7 @@ pub struct File<'ctx> {
 }
 
 impl<'ctx> File<'ctx> {
-    /// Constructs a new instance of Self from the given raw WASI file descriptor.
+    /// Constructs a new instance of `Self` from the given raw WASI file descriptor.
     ///
     /// This corresponds to [`std::fs::File::from_raw_fd`].
     ///

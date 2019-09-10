@@ -20,7 +20,7 @@ pub struct Dir<'ctx> {
 }
 
 impl<'ctx> Dir<'ctx> {
-    /// Constructs a new instance of Self from the given raw WASI file descriptor.
+    /// Constructs a new instance of `Self` from the given raw WASI file descriptor.
     pub unsafe fn from_raw_wasi_fd(ctx: &'ctx mut WasiCtx, fd: host::__wasi_fd_t) -> Self {
         Self { ctx, fd }
     }
