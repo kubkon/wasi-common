@@ -20,6 +20,9 @@
     )
 )]
 
+#[macro_use]
+extern crate lazy_static;
+
 mod ctx;
 mod error;
 mod fdentry;
@@ -28,6 +31,7 @@ mod hostcalls_impl;
 mod sys;
 #[macro_use]
 mod macros;
+pub mod fs;
 mod host;
 pub mod hostcalls;
 mod memory;
