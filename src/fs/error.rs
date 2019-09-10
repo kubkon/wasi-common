@@ -1,10 +1,13 @@
 use crate::host;
 use std::io;
 
+/// Translate a WASI errno code into an `io::Result<()>`.
 pub(crate) fn wasi_errno_to_io_error(errno: host::__wasi_errno_t) -> io::Result<()> {
     #[cfg(unix)]
     let raw_os_error = match errno {
         host::__WASI_ESUCCESS => return Ok(()),
+        host::__WASI_EIO => libc::EIO,
+        host::__WASI_EPERM => libc::EPERM,
         host::__WASI_EINVAL => libc::EINVAL,
         host::__WASI_EPIPE => libc::EPIPE,
         host::__WASI_ENOTCONN => libc::ENOTCONN,
@@ -82,6 +85,7 @@ pub(crate) fn wasi_errno_to_io_error(errno: host::__wasi_errno_t) -> io::Result<
         host::__WASI_ENOTCAPABLE => libc::ENOTCAPABLE,
         #[cfg(not(target_os = "wasi"))]
         host::__WASI_ENOTCAPABLE => libc::EIO,
+        _ => panic!("unexpected wasi errno value"),
     };
 
     #[cfg(windows)]
@@ -90,10 +94,11 @@ pub(crate) fn wasi_errno_to_io_error(errno: host::__wasi_errno_t) -> io::Result<
     #[cfg(windows)]
     let raw_os_error = match errno {
         host::__WASI_ESUCCESS => return Ok(()),
+        host::__WASI_EIO => WSAEIO,
         host::__WASI_EINVAL => WSAEINVAL,
         host::__WASI_EPIPE => ERROR_BROKEN_PIPE,
         host::__WASI_ENOTCONN => WSAENOTCONN,
-        host::__WASI_EACCES => ERROR_ACCESS_DENIED,
+        host::__WASI_EPERM | host::__WASI_EACCES => ERROR_ACCESS_DENIED,
         host::__WASI_EADDRINUSE => WSAEADDRINUSE,
         host::__WASI_EADDRNOTAVAIL => WSAEADDRNOTAVAIL,
         host::__WASI_EAGAIN => WSAEWOULDBLOCK,
