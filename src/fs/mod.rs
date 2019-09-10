@@ -28,7 +28,6 @@
     dead_code
 )]
 
-mod ctx;
 mod dir;
 mod dir_builder;
 mod dir_entry;

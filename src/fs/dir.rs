@@ -1,5 +1,5 @@
-use crate::fs::{ctx, error::wasi_errno_to_io_error, File, OpenOptions, ReadDir};
-use crate::{host, hostcalls};
+use crate::fs::{error::wasi_errno_to_io_error, File, OpenOptions, ReadDir};
+use crate::{host, hostcalls, WasiCtx};
 #[cfg(unix)]
 use std::os::unix::ffi::OsStrExt;
 use std::{io, path::Path};
@@ -15,14 +15,15 @@ use std::{io, path::Path};
 /// Unlike `std::fs`, this API has no `canonicalize`, because
 /// absolute paths don't interoperate well with the capability-oriented
 /// security model.
-pub struct Dir {
+pub struct Dir<'ctx> {
+    ctx: &'ctx mut WasiCtx,
     fd: host::__wasi_fd_t,
 }
 
-impl Dir {
+impl<'ctx> Dir<'ctx> {
     /// Constructs a new instance of Self from the given raw WASI file descriptor.
-    pub unsafe fn from_raw_wasi_fd(fd: host::__wasi_fd_t) -> Self {
-        Self { fd }
+    pub unsafe fn from_raw_wasi_fd(ctx: &'ctx mut WasiCtx, fd: host::__wasi_fd_t) -> Self {
+        Self { ctx, fd }
     }
 
     /// Attempts to open a file in read-only mode.
@@ -50,7 +51,7 @@ impl Dir {
         unimplemented!("Dir::open_file");
         /*
         wasi_errno_to_io_error(hostcalls::path_open(
-            &mut ctx::CONTEXT.lock().unwrap(),
+            self.ctx,
             self.fd,
             host::__WASI_LOOKUP_SYMLINK_FOLLOW,
             path.as_os_str().as_bytes(),
@@ -63,7 +64,8 @@ impl Dir {
         ))?;
         */
 
-        Ok(unsafe { File::from_raw_wasi_fd(fd) })
+        let ctx = self.ctx;
+        Ok(unsafe { File::from_raw_wasi_fd(ctx, fd) })
     }
 
     /// Opens a file at `path` with the options specified by `self`.
@@ -95,7 +97,7 @@ impl Dir {
         unimplemented!("Dir::open_dir");
         /*
         wasi_errno_to_io_error(hostcalls::path_open(
-            &mut ctx::CONTEXT.lock().unwrap(),
+            self.ctx,
             self.fd,
             host::__WASI_LOOKUP_SYMLINK_FOLLOW,
             path.as_os_str().as_bytes(),
@@ -107,7 +109,8 @@ impl Dir {
         ))?;
         */
 
-        Ok(unsafe { Dir::from_raw_wasi_fd(fd) })
+        let ctx = self.ctx;
+        Ok(unsafe { Dir::from_raw_wasi_fd(ctx, fd) })
     }
 
     /// Opens a file in write-only mode.
@@ -118,7 +121,7 @@ impl Dir {
     /// TODO: Not yet implemented. See the comment in `open_file`.
     ///
     /// [`std::fs::File::create`]: https://doc.rust-lang.org/std/fs/struct.File.html#method.create
-    pub fn create_file<P: AsRef<Path>>(path: P) -> io::Result<File> {
+    pub fn create_file<P: AsRef<Path>>(&mut self, path: P) -> io::Result<File> {
         let path = path.as_ref();
         let mut fd = 0;
 
@@ -128,7 +131,7 @@ impl Dir {
         unimplemented!("Dir::create_file");
         /*
         wasi_errno_to_io_error(hostcalls::path_open(
-            &mut ctx::CONTEXT.lock().unwrap(),
+            self.ctx,
             self.fd,
             host::__WASI_LOOKUP_SYMLINK_FOLLOW,
             path.as_os_str().as_bytes(),
@@ -141,7 +144,8 @@ impl Dir {
         ))?;
         */
 
-        Ok(unsafe { File::from_raw_wasi_fd(fd) })
+        let ctx = self.ctx;
+        Ok(unsafe { File::from_raw_wasi_fd(ctx, fd) })
     }
 
     /// Returns an iterator over the entries within a directory.
@@ -189,14 +193,14 @@ impl Dir {
     }
 }
 
-impl Drop for Dir {
+impl<'ctx> Drop for Dir<'ctx> {
     fn drop(&mut self) {
         // Note that errors are ignored when closing a file descriptor. The
         // reason for this is that if an error occurs we don't actually know if
         // the file descriptor was closed or not, and if we retried (for
         // something like EINTR), we might close another valid file descriptor
         // opened after we closed ours.
-        let _ = hostcalls::fd_close(&mut ctx::CONTEXT.lock().unwrap(), self.fd);
+        let _ = hostcalls::fd_close(self.ctx, self.fd);
     }
 }
 

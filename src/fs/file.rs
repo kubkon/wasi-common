@@ -1,5 +1,5 @@
-use crate::fs::{ctx, error::wasi_errno_to_io_error, Metadata};
-use crate::{host, hostcalls};
+use crate::fs::{error::wasi_errno_to_io_error, Metadata};
+use crate::{host, hostcalls, WasiCtx};
 use std::io;
 
 /// A reference to an open file on the filesystem.
@@ -11,18 +11,19 @@ use std::io;
 /// `Dir::open_file` or `Dir::create_file`.
 ///
 /// [`std::fs::File`]: https://doc.rust-lang.org/std/fs/struct.File.html
-pub struct File {
+pub struct File<'ctx> {
+    ctx: &'ctx mut WasiCtx,
     fd: host::__wasi_fd_t,
 }
 
-impl File {
+impl<'ctx> File<'ctx> {
     /// Constructs a new instance of Self from the given raw WASI file descriptor.
     ///
     /// This corresponds to [`std::fs::File::from_raw_fd`].
     ///
     /// [`std::fs::File::from_raw_fd`]: https://doc.rust-lang.org/std/fs/struct.File.html#method.from_raw_fd
-    pub unsafe fn from_raw_wasi_fd(fd: host::__wasi_fd_t) -> Self {
-        Self { fd }
+    pub unsafe fn from_raw_wasi_fd(ctx: &'ctx mut WasiCtx, fd: host::__wasi_fd_t) -> Self {
+        Self { ctx, fd }
     }
 
     /// Attempts to sync all OS-internal metadata to disk.
@@ -31,9 +32,7 @@ impl File {
     ///
     /// [`std::fs::File::sync_all`]: https://doc.rust-lang.org/std/fs/struct.File.html#method.sync_all
     pub fn sync_all(&self) -> io::Result<()> {
-        wasi_errno_to_io_error(unsafe {
-            hostcalls::fd_sync(&mut ctx::CONTEXT.lock().unwrap(), self.fd)
-        })
+        wasi_errno_to_io_error(unsafe { hostcalls::fd_sync(self.ctx, self.fd) })
     }
 
     /// This function is similar to `sync_all`, except that it may not synchronize
@@ -43,9 +42,7 @@ impl File {
     ///
     /// [`std::fs::File::sync_data`]: https://doc.rust-lang.org/std/fs/struct.File.html#method.sync_data
     pub fn sync_data(&self) -> io::Result<()> {
-        wasi_errno_to_io_error(unsafe {
-            hostcalls::fd_datasync(&mut ctx::CONTEXT.lock().unwrap(), self.fd)
-        })
+        wasi_errno_to_io_error(unsafe { hostcalls::fd_datasync(self.ctx, self.fd) })
     }
 
     /// Truncates or extends the underlying file, updating the size of this file
@@ -72,18 +69,18 @@ impl File {
     }
 }
 
-impl Drop for File {
+impl<'ctx> Drop for File<'ctx> {
     fn drop(&mut self) {
         // Note that errors are ignored when closing a file descriptor. The
         // reason for this is that if an error occurs we don't actually know if
         // the file descriptor was closed or not, and if we retried (for
         // something like EINTR), we might close another valid file descriptor
         // opened after we closed ours.
-        let _ = hostcalls::fd_close(&mut ctx::CONTEXT.lock().unwrap(), self.fd);
+        let _ = hostcalls::fd_close(self.ctx, self.fd);
     }
 }
 
-impl io::Read for File {
+impl<'ctx> io::Read for File<'ctx> {
     /// TODO: Not yet implemented. See the comment in `Dir::open_file`.
     fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
         let iov = [host::__wasi_iovec_t {
@@ -96,7 +93,7 @@ impl io::Read for File {
         unimplemented!("File::read");
         /*
         wasi_errno_to_io_error(unsafe {
-            hostcalls::fd_read(&mut ctx::CONTEXT.lock().unwrap(), self.fd, &iov, 1, &mut nread)
+            hostcalls::fd_read(self.ctx, self.fd, &iov, 1, &mut nread)
         })?;
         */
 
