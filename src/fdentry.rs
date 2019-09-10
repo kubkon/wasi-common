@@ -1,86 +1,40 @@
-use crate::sys::fdentry_impl;
+use crate::sys::fdentry_impl::{determine_type_and_access_rights, OsFile};
 use crate::{host, Error, Result};
-use cfg_if::cfg_if;
 use std::mem::ManuallyDrop;
 use std::path::PathBuf;
 use std::{fs, io};
 
-cfg_if! {
-    if #[cfg(any(
-        target_os = "macos",
-        target_os = "freebsd",
-        target_os = "netbsd",
-        target_os = "openbsd",
-        target_os = "ios",
-        target_os = "dragonfly"
-    ))] {
-        use std::sync::Mutex;
-
-        #[derive(Debug)]
-        pub struct DirStream {
-            pub file: ManuallyDrop<fs::File>,
-            pub dir_ptr: *mut libc::DIR,
-        }
-
-        impl Drop for DirStream {
-            fn drop(&mut self) {
-                unsafe { libc::closedir(self.dir_ptr) };
-            }
-        }
-
-        #[derive(Debug)]
-        pub enum Descriptor {
-            File {
-                file: fs::File,
-                dir_stream: Option<Mutex<DirStream>>,
-            },
-            Stdin,
-            Stdout,
-            Stderr,
-        }
-
-        impl From<fs::File> for Descriptor {
-            fn from(file: fs::File) -> Self {
-                Descriptor::File {
-                    file,
-                    dir_stream: None
-                }
-            }
-        }
-    } else {
-        #[derive(Debug)]
-        pub enum Descriptor {
-            File {
-                file: fs::File,
-            },
-            Stdin,
-            Stdout,
-            Stderr,
-        }
-
-        impl From<fs::File> for Descriptor {
-            fn from(file: fs::File) -> Self {
-                Descriptor::File { file }
-            }
-        }
-    }
+#[derive(Debug)]
+pub enum Descriptor {
+    OsFile(OsFile),
+    Stdin,
+    Stdout,
+    Stderr,
 }
 
 impl Descriptor {
-    pub fn as_file(&self) -> Result<&fs::File> {
+    pub fn as_file(&self) -> Result<&OsFile> {
         match self {
-            Descriptor::File { file, .. } => Ok(file),
+            Descriptor::OsFile(file) => Ok(file),
+            _ => Err(Error::EBADF),
+        }
+    }
+
+    pub fn as_file_mut(&mut self) -> Result<&mut OsFile> {
+        match self {
+            Descriptor::OsFile(file) => Ok(file),
             _ => Err(Error::EBADF),
         }
     }
 
     pub fn is_file(&self) -> bool {
         match self {
-            Descriptor::File { .. } => true,
+            Descriptor::OsFile(_) => true,
             _ => false,
         }
     }
 
+    #[allow(unused)]
     pub fn is_stdin(&self) -> bool {
         match self {
             Descriptor::Stdin => true,
@@ -88,6 +42,7 @@ impl Descriptor {
         }
     }
 
+    #[allow(unused)]
     pub fn is_stdout(&self) -> bool {
         match self {
             Descriptor::Stdout => true,
@@ -95,6 +50,7 @@ impl Descriptor {
         }
     }
 
+    #[allow(unused)]
     pub fn is_stderr(&self) -> bool {
         match self {
             Descriptor::Stderr => true,
@@ -129,11 +85,11 @@ impl Drop for FdObject {
 
 impl FdEntry {
     pub fn from(file: fs::File) -> Result<Self> {
-        fdentry_impl::determine_type_and_access_rights(&file).map(
+        determine_type_and_access_rights(&file).map(
             |(file_type, rights_base, rights_inheriting)| Self {
                 fd_object: FdObject {
                     file_type,
-                    descriptor: ManuallyDrop::new(Descriptor::from(file)),
+                    descriptor: ManuallyDrop::new(Descriptor::OsFile(OsFile::from(file))),
                     needs_close: true,
                 },
                 rights_base,
@@ -148,7 +104,7 @@ impl FdEntry {
     }
 
     pub fn duplicate_stdin() -> Result<Self> {
-        fdentry_impl::determine_type_and_access_rights(&io::stdin()).map(
+        determine_type_and_access_rights(&io::stdin()).map(
             |(file_type, rights_base, rights_inheriting)| Self {
                 fd_object: FdObject {
                     file_type,
@@ -163,7 +119,7 @@ impl FdEntry {
     }
 
     pub fn duplicate_stdout() -> Result<Self> {
-        fdentry_impl::determine_type_and_access_rights(&io::stdout()).map(
+        determine_type_and_access_rights(&io::stdout()).map(
             |(file_type, rights_base, rights_inheriting)| Self {
                 fd_object: FdObject {
                     file_type,
@@ -178,7 +134,7 @@ impl FdEntry {
     }
 
     pub fn duplicate_stderr() -> Result<Self> {
-        fdentry_impl::determine_type_and_access_rights(&io::stderr()).map(
+        determine_type_and_access_rights(&io::stderr()).map(
             |(file_type, rights_base, rights_inheriting)| Self {
                 fd_object: FdObject {
                     file_type,
