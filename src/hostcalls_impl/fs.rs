@@ -764,7 +764,7 @@ pub(crate) unsafe fn fd_filestat_set_times(
     fd_filestat_set_times_impl(fd, st_atim, st_mtim, fst_flags)
 }
 
-pub(crate) unsafe fn fd_filestat_set_times_impl(
+pub(crate) fn fd_filestat_set_times_impl(
     fd: &File,
     st_atim: wasm32::__wasi_timestamp_t,
     st_mtim: wasm32::__wasi_timestamp_t,
