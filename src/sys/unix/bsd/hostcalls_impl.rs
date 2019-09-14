@@ -17,17 +17,18 @@ pub(crate) fn fd_readdir(
     use std::mem::ManuallyDrop;
     use std::sync::Mutex;
 
-    if os_file.dir_stream.is_none() {
-        let file = os_file.file.try_clone()?;
-        let dir_ptr = unsafe { fdopendir(file.as_raw_fd()) };
-        os_file.dir_stream = Some(Mutex::new(DirStream {
-            file: ManuallyDrop::new(file),
-            dir_ptr,
-        }));
-    }
-    // It's OK to do the unwrap here, as we ensure that the `dir_stream`
-    // is always Some(_) in the if-branch above.
-    let dir_stream = os_file.dir_stream.as_mut().unwrap().lock().unwrap();
+    let dir_stream = match os_file.dir_stream {
+        Some(ref mut dir_stream) => dir_stream,
+        None => {
+            let file = os_file.file.try_clone()?;
+            let dir_ptr = unsafe { fdopendir(file.as_raw_fd()) };
+            os_file.dir_stream.get_or_insert(Mutex::new(DirStream {
+                file: ManuallyDrop::new(file),
+                dir_ptr,
+            }))
+        }
+    };
+    let dir_stream = dir_stream.lock().unwrap();
 
     let host_buf_ptr = host_buf.as_mut_ptr();
     let host_buf_len = host_buf.len();
