@@ -48,7 +48,7 @@ pub(crate) fn fd_readdir(
         }
         let entry: host::__wasi_dirent_t = host_impl::dirent_from_host(&unsafe { *host_entry })?;
 
-        log::debug!("entry = {:?}", entry);
+        log::debug!("fd_readdir entry = {:?}", entry);
 
         let name_len = entry.d_namlen.try_into()?;
         let required_space = std::mem::size_of_val(&entry) + name_len;

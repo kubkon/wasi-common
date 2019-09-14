@@ -63,7 +63,7 @@ pub(crate) fn fd_readdir(
         //   not equivalent to the value read from telldir call
         entry.d_next = unsafe { telldir(dir_stream.dir_ptr) } as host::__wasi_dircookie_t;
 
-        log::debug!("entry = {:?}", entry);
+        log::debug!("fd_readdir entry = {:?}", entry);
 
         let name_len = entry.d_namlen.try_into()?;
         let required_space = std::mem::size_of_val(&entry) + name_len;
