@@ -129,6 +129,9 @@ pub(crate) fn fd_advise(
     Errno::result(res).map(|_| ()).map_err(Error::from)
 }
 
+// TODO
+// It seems that at least some BSDs do support `posix_fadvise`,
+// so we should investigate further.
 #[cfg(not(any(target_os = "macos", target_os = "ios")))]
 pub(crate) fn fd_advise(
     _file: &File,

@@ -33,6 +33,12 @@ pub(crate) fn fd_readdir(
     let mut host_buf_offset: usize = 0;
     while left > 0 {
         let mut host_entry: *mut dirent = std::ptr::null_mut();
+
+        // TODO
+        // `readdir_r` syscall is being deprecated so we should look into
+        // replacing it with `readdir` call instead.
+        // Also, `readdir_r` returns a positive int on failure, and doesn't
+        // set the errno.
         let res = unsafe { readdir_r(dir, &mut entry_buf, &mut host_entry) };
         if res == -1 {
             return Err(host_impl::errno_from_nix(nix::errno::Errno::last()));
@@ -41,6 +47,9 @@ pub(crate) fn fd_readdir(
             break;
         }
         let entry: host::__wasi_dirent_t = host_impl::dirent_from_host(&unsafe { *host_entry })?;
+
+        log::debug!("entry = {:?}", entry);
+
         let name_len = entry.d_namlen as usize;
         let required_space = std::mem::size_of_val(&entry) + name_len;
         if required_space > left {
@@ -63,6 +72,7 @@ pub(crate) fn fd_readdir(
         host_buf_offset += name_len;
         left -= required_space;
     }
+
     Ok(host_buf_len - left)
 }
 
