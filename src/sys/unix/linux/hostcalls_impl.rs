@@ -50,13 +50,13 @@ pub(crate) fn fd_readdir(
 
         log::debug!("entry = {:?}", entry);
 
-        let name_len = entry.d_namlen as usize;
+        let name_len = entry.d_namlen.try_into()?;
         let required_space = std::mem::size_of_val(&entry) + name_len;
         if required_space > left {
             break;
         }
         unsafe {
-            let ptr = host_buf_ptr.offset(host_buf_offset as isize) as *mut c_void
+            let ptr = host_buf_ptr.offset(host_buf_offset.try_into()?) as *mut c_void
                 as *mut host::__wasi_dirent_t;
             *ptr = entry;
         }
@@ -64,7 +64,7 @@ pub(crate) fn fd_readdir(
         let name_ptr = unsafe { *host_entry }.d_name.as_ptr();
         unsafe {
             memcpy(
-                host_buf_ptr.offset(host_buf_offset as isize) as *mut _,
+                host_buf_ptr.offset(host_buf_offset.try_into()?) as *mut _,
                 name_ptr as *const _,
                 name_len,
             )
