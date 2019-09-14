@@ -5,7 +5,7 @@ use std::os::unix::prelude::{AsRawFd, FileTypeExt, FromRawFd, RawFd};
 
 cfg_if::cfg_if! {
     if #[cfg(target_os = "linux")] {
-        pub use super::linux::osfile::*;
+        pub(crate) use super::linux::osfile::*;
     } else if #[cfg(any(
             target_os = "macos",
             target_os = "netbsd",
@@ -14,7 +14,7 @@ cfg_if::cfg_if! {
             target_os = "ios",
             target_os = "dragonfly"
     ))] {
-        pub use super::bsd::osfile::*;
+        pub(crate) use super::bsd::osfile::*;
     }
 }
 

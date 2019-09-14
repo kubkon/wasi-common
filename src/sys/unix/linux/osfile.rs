@@ -3,7 +3,7 @@ use std::ops::{Deref, DerefMut};
 use std::os::unix::prelude::{AsRawFd, RawFd};
 
 #[derive(Debug)]
-pub struct OsFile(fs::File);
+pub(crate) struct OsFile(fs::File);
 
 impl From<fs::File> for OsFile {
     fn from(file: fs::File) -> Self {

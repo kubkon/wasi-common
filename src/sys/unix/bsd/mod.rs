@@ -1,2 +1,2 @@
 pub(crate) mod hostcalls_impl;
-pub mod osfile;
+pub(crate) mod osfile;

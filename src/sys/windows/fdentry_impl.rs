@@ -6,7 +6,7 @@ use std::ops::{Deref, DerefMut};
 use std::os::windows::prelude::{AsRawHandle, FromRawHandle, RawHandle};
 
 #[derive(Debug)]
-pub struct OsFile(File);
+pub(crate) struct OsFile(File);
 
 impl From<File> for OsFile {
     fn from(file: File) -> Self {

@@ -5,9 +5,9 @@ use std::os::unix::prelude::{AsRawFd, RawFd};
 use std::sync::Mutex;
 
 #[derive(Debug)]
-pub struct DirStream {
-    pub file: ManuallyDrop<fs::File>,
-    pub dir_ptr: *mut libc::DIR,
+pub(crate) struct DirStream {
+    pub(crate) file: ManuallyDrop<fs::File>,
+    pub(crate) dir_ptr: *mut libc::DIR,
 }
 
 impl Drop for DirStream {
@@ -17,9 +17,9 @@ impl Drop for DirStream {
 }
 
 #[derive(Debug)]
-pub struct OsFile {
-    pub file: fs::File,
-    pub dir_stream: Option<Mutex<DirStream>>,
+pub(crate) struct OsFile {
+    pub(crate) file: fs::File,
+    pub(crate) dir_stream: Option<Mutex<DirStream>>,
 }
 
 impl From<fs::File> for OsFile {

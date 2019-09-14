@@ -5,7 +5,7 @@ use std::path::PathBuf;
 use std::{fs, io};
 
 #[derive(Debug)]
-pub enum Descriptor {
+pub(crate) enum Descriptor {
     OsFile(OsFile),
     Stdin,
     Stdout,
@@ -13,21 +13,21 @@ pub enum Descriptor {
 }
 
 impl Descriptor {
-    pub fn as_file(&self) -> Result<&OsFile> {
+    pub(crate) fn as_file(&self) -> Result<&OsFile> {
         match self {
             Descriptor::OsFile(file) => Ok(file),
             _ => Err(Error::EBADF),
         }
     }
 
-    pub fn as_file_mut(&mut self) -> Result<&mut OsFile> {
+    pub(crate) fn as_file_mut(&mut self) -> Result<&mut OsFile> {
         match self {
             Descriptor::OsFile(file) => Ok(file),
             _ => Err(Error::EBADF),
         }
     }
 
-    pub fn is_file(&self) -> bool {
+    pub(crate) fn is_file(&self) -> bool {
         match self {
             Descriptor::OsFile(_) => true,
             _ => false,
@@ -35,7 +35,7 @@ impl Descriptor {
     }
 
     #[allow(unused)]
-    pub fn is_stdin(&self) -> bool {
+    pub(crate) fn is_stdin(&self) -> bool {
         match self {
             Descriptor::Stdin => true,
             _ => false,
@@ -43,7 +43,7 @@ impl Descriptor {
     }
 
     #[allow(unused)]
-    pub fn is_stdout(&self) -> bool {
+    pub(crate) fn is_stdout(&self) -> bool {
         match self {
             Descriptor::Stdout => true,
             _ => false,
@@ -51,7 +51,7 @@ impl Descriptor {
     }
 
     #[allow(unused)]
-    pub fn is_stderr(&self) -> bool {
+    pub(crate) fn is_stderr(&self) -> bool {
         match self {
             Descriptor::Stderr => true,
             _ => false,
@@ -60,19 +60,19 @@ impl Descriptor {
 }
 
 #[derive(Debug)]
-pub struct FdObject {
-    pub file_type: host::__wasi_filetype_t,
-    pub descriptor: ManuallyDrop<Descriptor>,
-    pub needs_close: bool,
+pub(crate) struct FdObject {
+    pub(crate) file_type: host::__wasi_filetype_t,
+    pub(crate) descriptor: ManuallyDrop<Descriptor>,
+    pub(crate) needs_close: bool,
     // TODO: directories
 }
 
 #[derive(Debug)]
-pub struct FdEntry {
-    pub fd_object: FdObject,
-    pub rights_base: host::__wasi_rights_t,
-    pub rights_inheriting: host::__wasi_rights_t,
-    pub preopen_path: Option<PathBuf>,
+pub(crate) struct FdEntry {
+    pub(crate) fd_object: FdObject,
+    pub(crate) rights_base: host::__wasi_rights_t,
+    pub(crate) rights_inheriting: host::__wasi_rights_t,
+    pub(crate) preopen_path: Option<PathBuf>,
 }
 
 impl Drop for FdObject {
@@ -84,7 +84,7 @@ impl Drop for FdObject {
 }
 
 impl FdEntry {
-    pub fn from(file: fs::File) -> Result<Self> {
+    pub(crate) fn from(file: fs::File) -> Result<Self> {
         determine_type_and_access_rights(&file).map(
             |(file_type, rights_base, rights_inheriting)| Self {
                 fd_object: FdObject {
@@ -99,11 +99,11 @@ impl FdEntry {
         )
     }
 
-    pub fn duplicate(file: &fs::File) -> Result<Self> {
+    pub(crate) fn duplicate(file: &fs::File) -> Result<Self> {
         Self::from(file.try_clone()?)
     }
 
-    pub fn duplicate_stdin() -> Result<Self> {
+    pub(crate) fn duplicate_stdin() -> Result<Self> {
         determine_type_and_access_rights(&io::stdin()).map(
             |(file_type, rights_base, rights_inheriting)| Self {
                 fd_object: FdObject {
@@ -118,7 +118,7 @@ impl FdEntry {
         )
     }
 
-    pub fn duplicate_stdout() -> Result<Self> {
+    pub(crate) fn duplicate_stdout() -> Result<Self> {
         determine_type_and_access_rights(&io::stdout()).map(
             |(file_type, rights_base, rights_inheriting)| Self {
                 fd_object: FdObject {
@@ -133,7 +133,7 @@ impl FdEntry {
         )
     }
 
-    pub fn duplicate_stderr() -> Result<Self> {
+    pub(crate) fn duplicate_stderr() -> Result<Self> {
         determine_type_and_access_rights(&io::stderr()).map(
             |(file_type, rights_base, rights_inheriting)| Self {
                 fd_object: FdObject {
