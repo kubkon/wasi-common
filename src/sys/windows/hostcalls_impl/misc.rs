@@ -5,7 +5,7 @@ use crate::helpers::systemtime_to_timestamp;
 use crate::hostcalls_impl::{ClockEventData, FdEventData};
 use crate::memory::*;
 use crate::sys::host_impl;
-use crate::{host, wasm32, Error, Result};
+use crate::{wasi, wasi32, Result};
 use cpu_time::{ProcessTime, ThreadTime};
 use lazy_static::lazy_static;
 use std::convert::TryInto;
@@ -15,11 +15,11 @@ lazy_static! {
     static ref START_MONOTONIC: Instant = Instant::now();
 }
 
-pub(crate) fn clock_res_get(clock_id: host::__wasi_clockid_t) -> Result<host::__wasi_timestamp_t> {
+pub(crate) fn clock_res_get(clock_id: host::__wasi_clockid_t) -> Result<wasi::__wasi_timestamp_t> {
     unimplemented!("clock_res_get")
 }
 
-pub(crate) fn clock_time_get(clock_id: host::__wasi_clockid_t) -> Result<host::__wasi_timestamp_t> {
+pub(crate) fn clock_time_get(clock_id: host::__wasi_clockid_t) -> Result<wasi::__wasi_timestamp_t> {
     let duration = match clock_id {
         host::__WASI_CLOCK_REALTIME => get_monotonic_time(),
         host::__WASI_CLOCK_MONOTONIC => get_realtime_time()?,
@@ -33,7 +33,7 @@ pub(crate) fn clock_time_get(clock_id: host::__wasi_clockid_t) -> Result<host::_
 pub(crate) fn poll_oneoff(
     timeout: Option<ClockEventData>,
     fd_events: Vec<FdEventData>,
-) -> Result<Vec<host::__wasi_event_t>> {
+) -> Result<Vec<wasi::__wasi_event_t>> {
     unimplemented!("poll_oneoff")
 }
 

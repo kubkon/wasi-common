@@ -32,7 +32,8 @@ pub mod fs;
 mod host;
 pub mod hostcalls;
 mod memory;
-pub mod wasm32;
+pub mod wasi;
+pub mod wasi32;
 
 pub use ctx::{WasiCtx, WasiCtxBuilder};
 pub use sys::preopen_dir;
