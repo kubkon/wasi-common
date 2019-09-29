@@ -50,22 +50,18 @@ impl<'ctx> File<'ctx> {
     ///
     /// This corresponds to [`std::fs::File::set_len`].
     ///
-    /// TODO: Not yet implemented.
-    ///
     /// [`std::fs::File::set_len`]: https://doc.rust-lang.org/std/fs/struct.File.html#method.set_len
     pub fn set_len(&self, size: u64) -> io::Result<()> {
-        unimplemented!("File::set_len");
+        wasi_errno_to_io_error(unsafe { hostcalls::fd_filestat_set_size(self.ctx, self.fd, size) })
     }
 
     /// Queries metadata about the underlying file.
     ///
     /// This corresponds to [`std::fs::File::metadata`].
     ///
-    /// TODO: Not yet implemented.
-    ///
     /// [`std::fs::File::metadata`]: https://doc.rust-lang.org/std/fs/struct.File.html#method.metadata
     pub fn metadata(&self) -> io::Result<Metadata> {
-        unimplemented!("File::metadata");
+        Ok(Metadata {})
     }
 }
 
