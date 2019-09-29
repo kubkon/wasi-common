@@ -76,7 +76,7 @@ impl<'ctx> Drop for File<'ctx> {
         // the file descriptor was closed or not, and if we retried (for
         // something like EINTR), we might close another valid file descriptor
         // opened after we closed ours.
-        let _ = hostcalls::fd_close(self.ctx, self.fd);
+        let _ = unsafe { hostcalls::fd_close(self.ctx, self.fd) };
     }
 }
 
