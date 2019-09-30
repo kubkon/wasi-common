@@ -6,6 +6,7 @@ use nix::libc::{self, c_long, c_void};
 use std::convert::TryInto;
 use std::ffi::CString;
 use std::fs::File;
+use std::mem::MaybeUninit;
 use std::os::unix::prelude::AsRawFd;
 
 pub(crate) fn path_rename(resolved_old: PathGet, resolved_new: PathGet) -> Result<()> {
@@ -50,7 +51,7 @@ pub(crate) fn fd_readdir(
         unsafe { rewinddir(dir) };
     }
 
-    let mut entry_buf = unsafe { std::mem::uninitialized::<dirent>() };
+    let mut entry_buf = MaybeUninit::<dirent>::uninit();
     let mut left = host_buf_len;
     let mut host_buf_offset: usize = 0;
     while left > 0 {
@@ -61,13 +62,14 @@ pub(crate) fn fd_readdir(
         // replacing it with `readdir` call instead.
         // Also, `readdir_r` returns a positive int on failure, and doesn't
         // set the errno.
-        let res = unsafe { readdir_r(dir, &mut entry_buf, &mut host_entry) };
+        let res = unsafe { readdir_r(dir, entry_buf.as_mut_ptr(), &mut host_entry) };
         if res == -1 {
             return Err(host_impl::errno_from_nix(nix::errno::Errno::last()));
         }
         if host_entry.is_null() {
             break;
         }
+        unsafe { entry_buf.assume_init() };
         let entry: host::__wasi_dirent_t = host_impl::dirent_from_host(&unsafe { *host_entry })?;
 
         log::debug!("fd_readdir entry = {:?}", entry);
