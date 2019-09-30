@@ -34,7 +34,7 @@ pub(crate) fn fd_readdir(
     host_buf: &mut [u8],
     cookie: host::__wasi_dircookie_t,
 ) -> Result<usize> {
-    use libc::{dirent, fdopendir, memcpy, readdir_r, rewinddir, seekdir};
+    use libc::{dirent, fdopendir, readdir_r, rewinddir, seekdir};
 
     let host_buf_ptr = host_buf.as_mut_ptr();
     let host_buf_len = host_buf.len();
@@ -87,9 +87,9 @@ pub(crate) fn fd_readdir(
         host_buf_offset += std::mem::size_of_val(&entry);
         let name_ptr = unsafe { *host_entry }.d_name.as_ptr();
         unsafe {
-            memcpy(
-                host_buf_ptr.offset(host_buf_offset.try_into()?) as *mut _,
+            std::ptr::copy_nonoverlapping(
                 name_ptr as *const _,
+                host_buf_ptr.offset(host_buf_offset.try_into()?) as *mut _,
                 name_len,
             )
         };
