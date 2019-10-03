@@ -1,3 +1,5 @@
+#![cfg(feature = "misc_testsuite")]
+
 mod runtime;
 mod utils;
 

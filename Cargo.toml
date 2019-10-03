@@ -10,6 +10,9 @@ edition = "2018"
 license = "Apache-2.0 WITH LLVM-exception"
 description = "WASI implementation in Rust"
 
+[features]
+misc_testsuite = []
+
 [dependencies]
 wasi-common-cbindgen = { path = "wasi-common-cbindgen" }
 failure = "0.1"
