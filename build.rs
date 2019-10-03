@@ -7,12 +7,12 @@
 //! Thanks @sunfishcode
 
 fn main() {
-    #[cfg(feature = "misc_testsuite")]
-    misc_testsuite::build_and_generate_tests();
+    #[cfg(feature = "wasm_tests")]
+    wasm_tests::build_and_generate_tests();
 }
 
-#[cfg(feature = "misc_testsuite")]
-mod misc_testsuite {
+#[cfg(feature = "wasm_tests")]
+mod wasm_tests {
     use std::env;
     use std::fs::{read_dir, DirEntry, File};
     use std::io::{self, Write};

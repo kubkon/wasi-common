@@ -1,4 +1,4 @@
-#![cfg(feature = "misc_testsuite")]
+#![cfg(feature = "wasm_tests")]
 
 mod runtime;
 mod utils;
