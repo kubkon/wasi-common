@@ -19,7 +19,13 @@ pub(crate) unsafe fn fd_close(wasi_ctx: &mut WasiCtx, fd: wasm32::__wasi_fd_t) -
     let fd = dec_fd(fd);
     if let Some(fdent) = wasi_ctx.fds.get(&fd) {
         // can't close preopened files
-        if fdent.fd_object.descriptor.as_file_details()?.preopen_path.is_some() {
+        if fdent
+            .fd_object
+            .descriptor
+            .as_file_details()?
+            .preopen_path
+            .is_some()
+        {
             return Err(Error::ENOTSUP);
         }
     }
@@ -188,8 +194,19 @@ pub(crate) unsafe fn fd_renumber(
     // Don't allow renumbering over a pre-opened resource.
     // TODO: Eventually, we do want to permit this, once libpreopen in
     // userspace is capable of removing entries from its tables as well.
-    if wasi_ctx.fds[&from].fd_object.descriptor.as_file_details()?.preopen_path.is_some()
-        || wasi_ctx.fds[&to].fd_object.descriptor.as_file_details()?.preopen_path.is_some() {
+    if wasi_ctx.fds[&from]
+        .fd_object
+        .descriptor
+        .as_file_details()?
+        .preopen_path
+        .is_some()
+        || wasi_ctx.fds[&to]
+            .fd_object
+            .descriptor
+            .as_file_details()?
+            .preopen_path
+            .is_some()
+    {
         return Err(Error::ENOTSUP);
     }
 
@@ -1006,7 +1023,13 @@ pub(crate) unsafe fn fd_prestat_get(
     wasi_ctx
         .get_fd_entry(fd, host::__WASI_RIGHT_PATH_OPEN, 0)
         .and_then(|fe| {
-            let po_path = fe.fd_object.descriptor.as_file_details()?.preopen_path.as_ref().ok_or(Error::ENOTSUP)?;
+            let po_path = fe
+                .fd_object
+                .descriptor
+                .as_file_details()?
+                .preopen_path
+                .as_ref()
+                .ok_or(Error::ENOTSUP)?;
             if fe.fd_object.file_type != host::__WASI_FILETYPE_DIRECTORY {
                 return Err(Error::ENOTDIR);
             }
@@ -1047,7 +1070,13 @@ pub(crate) unsafe fn fd_prestat_dir_name(
     wasi_ctx
         .get_fd_entry(fd, host::__WASI_RIGHT_PATH_OPEN, 0)
         .and_then(|fe| {
-            let po_path = fe.fd_object.descriptor.as_file_details()?.preopen_path.as_ref().ok_or(Error::ENOTSUP)?;
+            let po_path = fe
+                .fd_object
+                .descriptor
+                .as_file_details()?
+                .preopen_path
+                .as_ref()
+                .ok_or(Error::ENOTSUP)?;
             if fe.fd_object.file_type != host::__WASI_FILETYPE_DIRECTORY {
                 return Err(Error::ENOTDIR);
             }
