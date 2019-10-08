@@ -5,8 +5,14 @@ use std::path::PathBuf;
 use std::{fs, io};
 
 #[derive(Debug)]
+pub struct FileDetails {
+    pub(crate) file: OsFile,
+    pub(crate) preopen_path: Option<PathBuf>,
+}
+
+#[derive(Debug)]
 pub(crate) enum Descriptor {
-    OsFile(OsFile),
+    OsFile(FileDetails),
     Stdin,
     Stdout,
     Stderr,
@@ -15,14 +21,28 @@ pub(crate) enum Descriptor {
 impl Descriptor {
     pub(crate) fn as_file(&self) -> Result<&OsFile> {
         match self {
-            Self::OsFile(file) => Ok(file),
+            Self::OsFile(details) => Ok(&details.file),
             _ => Err(Error::EBADF),
         }
     }
 
     pub(crate) fn as_file_mut(&mut self) -> Result<&mut OsFile> {
         match self {
-            Self::OsFile(file) => Ok(file),
+            Self::OsFile(details) => Ok(&mut details.file),
+            _ => Err(Error::EBADF),
+        }
+    }
+
+    pub fn as_file_details(&self) -> Result<&FileDetails> {
+        match self {
+            Descriptor::OsFile(details) => Ok(details),
+            _ => Err(Error::EBADF),
+        }
+    }
+
+    pub fn as_file_details_mut(&mut self) -> Result<&mut FileDetails> {
+        match self {
+            Descriptor::OsFile(ref mut details) => Ok(details),
             _ => Err(Error::EBADF),
         }
     }
@@ -72,7 +92,6 @@ pub(crate) struct FdEntry {
     pub(crate) fd_object: FdObject,
     pub(crate) rights_base: host::__wasi_rights_t,
     pub(crate) rights_inheriting: host::__wasi_rights_t,
-    pub(crate) preopen_path: Option<PathBuf>,
 }
 
 impl Drop for FdObject {
@@ -89,12 +108,14 @@ impl FdEntry {
             |(file_type, rights_base, rights_inheriting)| Self {
                 fd_object: FdObject {
                     file_type,
-                    descriptor: ManuallyDrop::new(Descriptor::OsFile(OsFile::from(file))),
+                    descriptor: ManuallyDrop::new(Descriptor::OsFile(FileDetails {
+                        file: OsFile::from(file),
+                        preopen_path: None,
+                    })),
                     needs_close: true,
                 },
                 rights_base,
                 rights_inheriting,
-                preopen_path: None,
             },
         )
     }
@@ -113,7 +134,6 @@ impl FdEntry {
                 },
                 rights_base,
                 rights_inheriting,
-                preopen_path: None,
             },
         )
     }
@@ -128,7 +148,6 @@ impl FdEntry {
                 },
                 rights_base,
                 rights_inheriting,
-                preopen_path: None,
             },
         )
     }
@@ -143,7 +162,6 @@ impl FdEntry {
                 },
                 rights_base,
                 rights_inheriting,
-                preopen_path: None,
             },
         )
     }

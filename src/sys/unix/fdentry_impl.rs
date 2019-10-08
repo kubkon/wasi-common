@@ -21,7 +21,7 @@ cfg_if::cfg_if! {
 impl AsRawFd for Descriptor {
     fn as_raw_fd(&self) -> RawFd {
         match self {
-            Self::OsFile(file) => file.as_raw_fd(),
+            Self::OsFile(details) => details.file.as_raw_fd(),
             Self::Stdin => io::stdin().as_raw_fd(),
             Self::Stdout => io::stdout().as_raw_fd(),
             Self::Stderr => io::stderr().as_raw_fd(),
