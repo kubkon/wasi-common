@@ -343,6 +343,9 @@ pub(crate) fn path_symlink(old_path: &str, resolved: PathGet) -> Result<()> {
     let old_path_cstr = CString::new(old_path.as_bytes()).map_err(|_| Error::EILSEQ)?;
     let new_path_cstr = CString::new(resolved.path().as_bytes()).map_err(|_| Error::EILSEQ)?;
 
+    log::debug!("path_symlink old_path = {:?}", old_path);
+    log::debug!("path_symlink new_path = {:?}", resolved.path());
+
     let res = unsafe {
         symlinkat(
             old_path_cstr.as_ptr(),
