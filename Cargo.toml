@@ -38,7 +38,7 @@ wasmtime-jit = { git = "https://github.com/cranestation/wasmtime", rev = "cb38b4
 wasmtime-wasi = { git = "https://github.com/cranestation/wasmtime", rev = "cb38b48" }
 cranelift-codegen = "0.44.0"
 cranelift-entity = "0.44.0"
-cranelift-wasm = "0.44.0"
+cranelift-wasm = "0.46.1"
 cranelift-native = "0.44.0"
 target-lexicon = "0.8.1"
 pretty_env_logger = "0.3.0"
