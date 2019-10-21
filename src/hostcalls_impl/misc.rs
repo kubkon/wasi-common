@@ -183,7 +183,7 @@ pub(crate) fn clock_time_get(
 }
 
 pub(crate) fn poll_oneoff(
-    _wasi_ctx: &WasiCtx,
+    wasi_ctx: &WasiCtx,
     memory: &mut [u8],
     input: wasm32::uintptr_t,
     output: wasm32::uintptr_t,
@@ -207,7 +207,7 @@ pub(crate) fn poll_oneoff(
     let input_slice = dec_slice_of::<wasm32::__wasi_subscription_t>(memory, input, nsubscriptions)?;
     let input: Vec<_> = input_slice.iter().map(dec_subscription).collect();
     let output_slice = dec_slice_of_mut::<wasm32::__wasi_event_t>(memory, output, nsubscriptions)?;
-    let events_count = hostcalls_impl::poll_oneoff(input, output_slice)?;
+    let events_count = hostcalls_impl::poll_oneoff(wasi_ctx, input, output_slice)?;
 
     trace!("     | *nevents={:?}", events_count);
 

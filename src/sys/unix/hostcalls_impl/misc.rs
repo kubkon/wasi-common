@@ -2,7 +2,7 @@
 #![allow(unused_unsafe)]
 use crate::memory::*;
 use crate::sys::host_impl;
-use crate::{host, wasm32, Error, Result};
+use crate::{ctx::WasiCtx, host, wasm32, Error, Result};
 use nix::libc::{self, c_int};
 use std::cmp;
 use std::mem::MaybeUninit;
@@ -70,9 +70,12 @@ pub(crate) fn clock_time_get(clock_id: host::__wasi_clockid_t) -> Result<host::_
 }
 
 pub(crate) fn poll_oneoff(
+    wasi_ctx: &WasiCtx,
     input: Vec<Result<host::__wasi_subscription_t>>,
     output_slice: &mut [wasm32::__wasi_event_t],
 ) -> Result<wasm32::size_t> {
+    use std::os::unix::prelude::*;
+
     let timeout = input
         .iter()
         .filter_map(|event| match event {
@@ -84,22 +87,30 @@ pub(crate) fn poll_oneoff(
         })
         .min_by_key(|event| event.delay);
 
-    let fd_events: Vec<_> = input
-        .iter()
-        .filter_map(|event| match event {
-            Ok(event)
-                if event.type_ == wasm32::__WASI_EVENTTYPE_FD_READ
-                    || event.type_ == wasm32::__WASI_EVENTTYPE_FD_WRITE =>
+    let mut fd_events = Vec::new();
+    for event in &input {
+        if let Ok(event) = event {
+            if event.type_ == wasm32::__WASI_EVENTTYPE_FD_READ
+                || event.type_ == wasm32::__WASI_EVENTTYPE_FD_WRITE
             {
-                Some(FdEventData {
-                    fd: unsafe { event.u.fd_readwrite.fd } as c_int,
+                let wasi_fd = unsafe { event.u.fd_readwrite.fd };
+                let fd = unsafe {
+                    wasi_ctx
+                        .get_fd_entry(wasi_fd, host::__WASI_RIGHT_FD_READ, 0)
+                        .and_then(|fe| fe.fd_object.descriptor.as_file())?
+                        .as_raw_fd()
+                };
+                fd_events.push(FdEventData {
+                    fd,
                     type_: event.type_,
                     userdata: event.userdata,
                 })
             }
-            _ => None,
-        })
-        .collect();
+        }
+    }
+
+    log::debug!("poll_oneoff fd_events = {:?}", fd_events);
+
     if fd_events.is_empty() && timeout.is_none() {
         return Ok(0);
     }
@@ -203,11 +214,18 @@ fn poll_oneoff_handle_fd_event<'t>(
 ) -> wasm32::size_t {
     let mut output_slice_cur = output_slice.iter_mut();
     let mut revents_count = 0;
+
     for (fd_event, poll_fd) in events {
+        log::debug!("poll_oneoff_handle_fd_event fd_event = {:?}", fd_event);
+        log::debug!("poll_oneoff_handle_fd_event poll_fd = {:?}", poll_fd);
+
         let revents = match poll_fd.revents() {
             Some(revents) => revents,
             None => continue,
         };
+
+        log::debug!("poll_oneoff_handle_fd_event revents = {:?}", revents);
+
         let mut nbytes = 0;
         if fd_event.type_ == wasm32::__WASI_EVENTTYPE_FD_READ {
             let _ = unsafe { fionread(fd_event.fd, &mut nbytes) };
