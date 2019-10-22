@@ -2,11 +2,20 @@ use crate::sys::fdentry_impl::{determine_type_and_access_rights, OsFile};
 use crate::{host, Error, Result};
 use std::mem::ManuallyDrop;
 use std::path::PathBuf;
-use std::{fs, io};
+use std::{fs, io, net};
+
+#[derive(Debug)]
+pub struct SocketDetails {
+    pub socket_domain: i32,
+    pub socket_type: u8,
+    pub socket_protocol: i32,
+}
 
 #[derive(Debug)]
 pub(crate) enum Descriptor {
     OsFile(OsFile),
+    Socket(net::TcpStream),
+    SocketFd(SocketDetails), // stores allocated fd, and options: domain, type and protocol
     Stdin,
     Stdout,
     Stderr,
@@ -35,6 +44,28 @@ impl Descriptor {
     }
 
     #[allow(unused)]
+    pub(crate) fn as_socket(&self) -> Result<&net::TcpStream> {
+        match self {
+            Descriptor::Socket(s) => Ok(s),
+            // TODO: add a separate error code?
+            _ => Err(Error::EBADF),
+        }
+    }
+
+    pub(crate) fn is_socket(&self) -> bool {
+        match self {
+            Descriptor::Socket(_) => true,
+            _ => false,
+        }
+    }
+
+    pub(crate) fn is_socket_fd(&self) -> bool {
+        match self {
+            Descriptor::SocketFd(_) => true,
+            _ => false,
+        }
+    }
+
     pub(crate) fn is_stdin(&self) -> bool {
         match self {
             Self::Stdin => true,
@@ -90,6 +121,21 @@ impl FdEntry {
                 fd_object: FdObject {
                     file_type,
                     descriptor: ManuallyDrop::new(Descriptor::OsFile(OsFile::from(file))),
+                    needs_close: true,
+                },
+                rights_base,
+                rights_inheriting,
+                preopen_path: None,
+            },
+        )
+    }
+
+    pub(crate) fn from_socket_details(details: SocketDetails) -> Result<Self> {
+        fdentry_impl::determine_type_and_access_rights_for_socket().map(
+            |(file_type, rights_base, rights_inheriting)| Self {
+                fd_object: FdObject {
+                    file_type,
+                    descriptor: ManuallyDrop::new(Descriptor::SocketFd(details)),
                     needs_close: true,
                 },
                 rights_base,

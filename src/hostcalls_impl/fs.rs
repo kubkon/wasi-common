@@ -376,6 +376,8 @@ pub(crate) unsafe fn fd_write(
     // perform unbuffered writes
     let host_nwritten = match &mut *fe.fd_object.descriptor {
         Descriptor::OsFile(file) => file.write_vectored(&iovs)?,
+        Descriptor::Socket(_) => return Err(Error::EBADF),
+        Descriptor::SocketFd(_) => return Err(Error::EBADF),
         Descriptor::Stdin => return Err(Error::EBADF),
         Descriptor::Stdout => {
             // lock for the duration of the scope

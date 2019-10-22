@@ -193,6 +193,7 @@ pub(crate) const __WASI_RIGHT_PATH_REMOVE_DIRECTORY: __wasi_rights_t = 0x0000000
 pub(crate) const __WASI_RIGHT_PATH_UNLINK_FILE: __wasi_rights_t = 0x0000000004000000;
 pub(crate) const __WASI_RIGHT_POLL_FD_READWRITE: __wasi_rights_t = 0x0000000008000000;
 pub(crate) const __WASI_RIGHT_SOCK_SHUTDOWN: __wasi_rights_t = 0x0000000010000000;
+pub(crate) const __WASI_RIGHT_SOCK_CONNECT: __wasi_rights_t = 0x0000_0002_0000_0000;
 
 pub(crate) const RIGHTS_ALL: __wasi_rights_t = __WASI_RIGHT_FD_DATASYNC
     | __WASI_RIGHT_FD_READ
@@ -302,6 +303,10 @@ pub(crate) const RIGHTS_TTY_INHERITING: __wasi_rights_t = 0;
 
 pub(crate) type __wasi_roflags_t = u16;
 pub(crate) const __WASI_SOCK_RECV_DATA_TRUNCATED: __wasi_roflags_t = 0x0001;
+pub(crate) const RIGHTS_SOCK_ALL: __wasi_rights_t = __WASI_RIGHT_SOCK_CONNECT
+    | __WASI_RIGHT_SOCK_SHUTDOWN;
+
+pub(crate) const RIGHTS_SOCK_BASE: __wasi_rights_t = RIGHTS_SOCK_ALL;
 
 pub(crate) type __wasi_sdflags_t = u8;
 pub(crate) const __WASI_SHUT_RD: __wasi_sdflags_t = 0x01;
