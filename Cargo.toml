@@ -9,6 +9,10 @@ authors = [
 edition = "2018"
 license = "Apache-2.0 WITH LLVM-exception"
 description = "WASI implementation in Rust"
+categories = ["wasm"]
+keywords = ["webassembly", "wasm"]
+repository = "https://github.com/CraneStation/wasi-common"
+readme = "README.md"
 
 [features]
 # this feature requires wasm32-wasi target installed, and it enables wasm32
