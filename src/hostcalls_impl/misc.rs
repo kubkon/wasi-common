@@ -205,11 +205,8 @@ pub(crate) fn poll_oneoff(
     enc_pointee(memory, nevents, 0)?;
 
     let input_slice = dec_slice_of::<wasm32::__wasi_subscription_t>(memory, input, nsubscriptions)?;
-    let input: Vec<_> = input_slice
-        .iter()
-        .map(dec_subscription)
-        .collect::<Result<Vec<_>>>()?;
-    let events = hostcalls_impl::poll_oneoff(wasi_ctx, input)?;
+
+    let events = hostcalls_impl::poll_oneoff(wasi_ctx, input_slice.iter().map(dec_subscription))?;
 
     let output_slice = dec_slice_of_mut::<wasm32::__wasi_event_t>(memory, output, nsubscriptions)?;
     let mut events_count = 0;

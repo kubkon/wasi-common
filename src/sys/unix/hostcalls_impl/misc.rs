@@ -70,7 +70,7 @@ pub(crate) fn clock_time_get(clock_id: host::__wasi_clockid_t) -> Result<host::_
 
 pub(crate) fn poll_oneoff(
     wasi_ctx: &WasiCtx,
-    input: Vec<host::__wasi_subscription_t>,
+    input: impl Iterator<Item = Result<host::__wasi_subscription_t>>,
 ) -> Result<Vec<host::__wasi_event_t>> {
     use nix::{
         errno::Errno,
@@ -81,6 +81,7 @@ pub(crate) fn poll_oneoff(
     let mut timeout: Option<ClockEventData> = None;
     let mut fd_events = Vec::new();
     for event in input {
+        let event = event?;
         match event.type_ {
             host::__WASI_EVENTTYPE_CLOCK => {
                 let clock = unsafe { event.u.clock };
@@ -91,12 +92,9 @@ pub(crate) fn poll_oneoff(
                     delay,
                     userdata: event.userdata,
                 };
-                if let Some(ref mut timeout) = timeout {
-                    if current_event.delay < timeout.delay {
-                        *timeout = current_event;
-                    }
-                } else {
-                    timeout = Some(current_event);
+                let timeout_event = timeout.get_or_insert(current_event);
+                if current_event.delay < timeout_event.delay {
+                    *timeout_event = current_event;
                 }
             }
             host::__WASI_EVENTTYPE_FD_READ => {
