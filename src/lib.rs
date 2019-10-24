@@ -29,7 +29,7 @@ mod sys;
 #[macro_use]
 mod macros;
 pub mod fs;
-mod host;
+pub mod host;
 pub mod hostcalls;
 mod memory;
 pub mod wasm32;
