@@ -4,7 +4,7 @@
 use crate::helpers::systemtime_to_timestamp;
 use crate::memory::*;
 use crate::sys::host_impl;
-use crate::{host, wasm32, Error, Result};
+use crate::{ctx::WasiCtx, host, wasm32, Error, Result};
 use cpu_time::{ProcessTime, ThreadTime};
 use lazy_static::lazy_static;
 use std::convert::TryInto;
@@ -30,9 +30,9 @@ pub(crate) fn clock_time_get(clock_id: host::__wasi_clockid_t) -> Result<host::_
 }
 
 pub(crate) fn poll_oneoff(
-    input: Vec<Result<host::__wasi_subscription_t>>,
-    output_slice: &mut [wasm32::__wasi_event_t],
-) -> Result<wasm32::size_t> {
+    wasi_ctx: &WasiCtx,
+    input: impl Iterator<Item = Result<host::__wasi_subscription_t>>,
+) -> Result<Vec<host::__wasi_event_t>> {
     unimplemented!("poll_oneoff")
 }
 
