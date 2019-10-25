@@ -8,7 +8,17 @@
 
 fn main() {
     #[cfg(feature = "wasm_tests")]
-    wasm_tests::build_and_generate_tests();
+    {
+        let bin_tests = std::fs::read_dir("misc_testsuite/src/bin")
+            .expect("wasm_tests feature requires initialized misc_testsuite: `git submodule update --init`?");
+        for test in bin_tests {
+            if let Ok(test_file) = test {
+                let test_file_path = test_file.path().into_os_string().into_string().expect("test file path");
+                println!("cargo:rerun-if-changed={}", test_file_path);
+            }
+        }
+        wasm_tests::build_and_generate_tests();
+    }
 }
 
 #[cfg(feature = "wasm_tests")]
