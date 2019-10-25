@@ -13,7 +13,11 @@ fn main() {
             .expect("wasm_tests feature requires initialized misc_testsuite: `git submodule update --init`?");
         for test in bin_tests {
             if let Ok(test_file) = test {
-                let test_file_path = test_file.path().into_os_string().into_string().expect("test file path");
+                let test_file_path = test_file
+                    .path()
+                    .into_os_string()
+                    .into_string()
+                    .expect("test file path");
                 println!("cargo:rerun-if-changed={}", test_file_path);
             }
         }
