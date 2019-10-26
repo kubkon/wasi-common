@@ -5,7 +5,7 @@ use crate::helpers::systemtime_to_timestamp;
 use crate::hostcalls_impl::{ClockEventData, FdEventData};
 use crate::memory::*;
 use crate::sys::host_impl;
-use crate::{wasi, wasi32, Result};
+use crate::{wasi, wasi32, Error, Result};
 use cpu_time::{ProcessTime, ThreadTime};
 use lazy_static::lazy_static;
 use std::convert::TryInto;
@@ -15,16 +15,16 @@ lazy_static! {
     static ref START_MONOTONIC: Instant = Instant::now();
 }
 
-pub(crate) fn clock_res_get(clock_id: host::__wasi_clockid_t) -> Result<wasi::__wasi_timestamp_t> {
+pub(crate) fn clock_res_get(clock_id: wasi::__wasi_clockid_t) -> Result<wasi::__wasi_timestamp_t> {
     unimplemented!("clock_res_get")
 }
 
-pub(crate) fn clock_time_get(clock_id: host::__wasi_clockid_t) -> Result<wasi::__wasi_timestamp_t> {
+pub(crate) fn clock_time_get(clock_id: wasi::__wasi_clockid_t) -> Result<wasi::__wasi_timestamp_t> {
     let duration = match clock_id {
-        host::__WASI_CLOCK_REALTIME => get_monotonic_time(),
-        host::__WASI_CLOCK_MONOTONIC => get_realtime_time()?,
-        host::__WASI_CLOCK_PROCESS_CPUTIME_ID => get_proc_cputime()?,
-        host::__WASI_CLOCK_THREAD_CPUTIME_ID => get_thread_cputime()?,
+        wasi::__WASI_CLOCK_REALTIME => get_monotonic_time(),
+        wasi::__WASI_CLOCK_MONOTONIC => get_realtime_time()?,
+        wasi::__WASI_CLOCK_PROCESS_CPUTIME_ID => get_proc_cputime()?,
+        wasi::__WASI_CLOCK_THREAD_CPUTIME_ID => get_thread_cputime()?,
         _ => return Err(Error::EINVAL),
     };
     duration.as_nanos().try_into().map_err(Into::into)

@@ -2,7 +2,7 @@
 #![allow(non_camel_case_types)]
 #![allow(non_snake_case)]
 #![allow(unused)]
-use crate::{host, Error, Result};
+use crate::{wasi, Error, Result};
 use std::ffi::OsStr;
 use std::fs::OpenOptions;
 use std::os::windows::ffi::OsStrExt;
@@ -40,16 +40,16 @@ pub(crate) fn errno_from_win(error: winx::winerror::WinError) -> wasi::__wasi_er
     }
 }
 
-pub(crate) fn fdflags_from_win(mode: AccessMode) -> wasm32::__wasi_fdflags_t {
+pub(crate) fn fdflags_from_win(mode: AccessMode) -> wasi::__wasi_fdflags_t {
     let mut fdflags = 0;
     // TODO verify this!
     if mode.contains(AccessMode::FILE_APPEND_DATA) {
-        fdflags |= wasm32::__WASI_FDFLAG_APPEND;
+        fdflags |= wasi::__WASI_FDFLAG_APPEND;
     }
     if mode.contains(AccessMode::SYNCHRONIZE) {
-        fdflags |= wasm32::__WASI_FDFLAG_DSYNC;
-        fdflags |= wasm32::__WASI_FDFLAG_RSYNC;
-        fdflags |= wasm32::__WASI_FDFLAG_SYNC;
+        fdflags |= wasi::__WASI_FDFLAG_DSYNC;
+        fdflags |= wasi::__WASI_FDFLAG_RSYNC;
+        fdflags |= wasi::__WASI_FDFLAG_SYNC;
     }
     // The NONBLOCK equivalent is FILE_FLAG_OVERLAPPED
     // but it seems winapi doesn't provide a mechanism
@@ -63,20 +63,20 @@ pub(crate) fn fdflags_from_win(mode: AccessMode) -> wasm32::__wasi_fdflags_t {
     fdflags
 }
 
-pub(crate) fn win_from_fdflags(fdflags: wasm32::__wasi_fdflags_t) -> (AccessMode, Flags) {
+pub(crate) fn win_from_fdflags(fdflags: wasi::__wasi_fdflags_t) -> (AccessMode, Flags) {
     let mut access_mode = AccessMode::empty();
     let mut flags = Flags::empty();
 
     // TODO verify this!
-    if fdflags & wasm32::__WASI_FDFLAG_NONBLOCK != 0 {
+    if fdflags & wasi::__WASI_FDFLAG_NONBLOCK != 0 {
         flags.insert(Flags::FILE_FLAG_OVERLAPPED);
     }
-    if fdflags & wasm32::__WASI_FDFLAG_APPEND != 0 {
+    if fdflags & wasi::__WASI_FDFLAG_APPEND != 0 {
         access_mode.insert(AccessMode::FILE_APPEND_DATA);
     }
-    if fdflags & wasm32::__WASI_FDFLAG_DSYNC != 0
-        || fdflags & wasm32::__WASI_FDFLAG_RSYNC != 0
-        || fdflags & wasm32::__WASI_FDFLAG_SYNC != 0
+    if fdflags & wasi::__WASI_FDFLAG_DSYNC != 0
+        || fdflags & wasi::__WASI_FDFLAG_RSYNC != 0
+        || fdflags & wasi::__WASI_FDFLAG_SYNC != 0
     {
         access_mode.insert(AccessMode::SYNCHRONIZE);
     }
@@ -84,14 +84,14 @@ pub(crate) fn win_from_fdflags(fdflags: wasm32::__wasi_fdflags_t) -> (AccessMode
     (access_mode, flags)
 }
 
-pub(crate) fn win_from_oflags(oflags: wasm32::__wasi_oflags_t) -> CreationDisposition {
-    if oflags & wasm32::__WASI_O_CREAT != 0 {
-        if oflags & wasm32::__WASI_O_EXCL != 0 {
+pub(crate) fn win_from_oflags(oflags: wasi::__wasi_oflags_t) -> CreationDisposition {
+    if oflags & wasi::__WASI_O_CREAT != 0 {
+        if oflags & wasi::__WASI_O_EXCL != 0 {
             CreationDisposition::CREATE_NEW
         } else {
             CreationDisposition::CREATE_ALWAYS
         }
-    } else if oflags & wasm32::__WASI_O_TRUNC != 0 {
+    } else if oflags & wasi::__WASI_O_TRUNC != 0 {
         CreationDisposition::TRUNCATE_EXISTING
     } else {
         CreationDisposition::OPEN_EXISTING
