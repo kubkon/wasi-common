@@ -20,14 +20,14 @@ pub(crate) mod fdentry_impl {
 
 pub(crate) mod host_impl {
     use super::super::host_impl::dirent_filetype_from_host;
-    use crate::{host, memory, Result};
+    use crate::{wasi, Result};
 
     pub(crate) const O_RSYNC: nix::fcntl::OFlag = nix::fcntl::OFlag::O_SYNC;
 
     pub(crate) fn dirent_from_host(
         host_entry: &nix::libc::dirent,
-    ) -> Result<host::__wasi_dirent_t> {
-        let mut entry = unsafe { std::mem::zeroed::<host::__wasi_dirent_t>() };
+    ) -> Result<wasi::__wasi_dirent_t> {
+        let mut entry = unsafe { std::mem::zeroed::<wasi::__wasi_dirent_t>() };
         let d_type = dirent_filetype_from_host(host_entry)?;
         entry.d_ino = memory::enc_inode(host_entry.d_ino);
         entry.d_next = memory::enc_dircookie(host_entry.d_seekoff);
