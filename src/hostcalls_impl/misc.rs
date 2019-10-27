@@ -1,8 +1,9 @@
 #![allow(non_camel_case_types)]
 use crate::ctx::WasiCtx;
+use crate::fdentry::Descriptor;
 use crate::memory::*;
 use crate::sys::hostcalls_impl;
-use crate::{wasm32, Error, Result};
+use crate::{host, wasm32, Error, Result};
 use log::trace;
 use std::convert::TryFrom;
 
@@ -182,6 +183,14 @@ pub(crate) fn clock_time_get(
     enc_timestamp_byref(memory, time_ptr, time)
 }
 
+pub(crate) fn sched_yield() -> Result<()> {
+    trace!("sched_yield()");
+
+    std::thread::yield_now();
+
+    Ok(())
+}
+
 pub(crate) fn poll_oneoff(
     wasi_ctx: &WasiCtx,
     memory: &mut [u8],
@@ -206,13 +215,65 @@ pub(crate) fn poll_oneoff(
 
     let input_slice = dec_slice_of::<wasm32::__wasi_subscription_t>(memory, input, nsubscriptions)?;
 
-    let events = hostcalls_impl::poll_oneoff(wasi_ctx, input_slice.iter().map(dec_subscription))?;
+    let mut timeout: Option<ClockEventData> = None;
+    let mut fd_events = Vec::new();
+    for event in input_slice.iter().map(dec_subscription) {
+        let event = event?;
+        match event.type_ {
+            host::__WASI_EVENTTYPE_CLOCK => {
+                let clock = unsafe { event.u.clock };
+                let delay = wasi_clock_to_relative_ns_delay(clock)? / 1_000_000; // in milliseconds!
 
+                log::debug!("poll_oneoff event.u.clock = {:?}", clock);
+                log::debug!("poll_oneoff delay = {:?}ms", delay);
+
+                let current_event = ClockEventData {
+                    delay,
+                    userdata: event.userdata,
+                };
+                let timeout_event = timeout.get_or_insert(current_event);
+                if current_event.delay < timeout_event.delay {
+                    *timeout_event = current_event;
+                }
+            }
+            type_
+                if type_ == host::__WASI_EVENTTYPE_FD_READ
+                    || type_ == host::__WASI_EVENTTYPE_FD_WRITE =>
+            {
+                let wasi_fd = unsafe { event.u.fd_readwrite.fd };
+                let rights = if type_ == host::__WASI_EVENTTYPE_FD_READ {
+                    host::__WASI_RIGHT_FD_READ
+                } else {
+                    host::__WASI_RIGHT_FD_WRITE
+                };
+                let descriptor = unsafe {
+                    &wasi_ctx
+                        .get_fd_entry(wasi_fd, rights, 0)?
+                        .fd_object
+                        .descriptor
+                };
+                fd_events.push(FdEventData {
+                    descriptor,
+                    type_: event.type_,
+                    userdata: event.userdata,
+                })
+            }
+            _ => unreachable!(),
+        }
+    }
+
+    log::debug!("poll_oneoff timeout = {:?}", timeout);
+    log::debug!("poll_oneoff fd_events = {:?}", fd_events);
+
+    let events = hostcalls_impl::poll_oneoff(timeout, fd_events)?;
     let output_slice = dec_slice_of_mut::<wasm32::__wasi_event_t>(memory, output, nsubscriptions)?;
-    let mut events_count = 0;
-    for (i, event) in events.into_iter().enumerate() {
-        output_slice[i] = enc_event(event);
-        events_count += 1;
+    let mut output_slice_iter = output_slice.iter_mut();
+    let events_count = events.len();
+
+    for event in events {
+        *output_slice_iter
+            .next()
+            .expect("number of subscriptions has to match number of events") = enc_event(event);
     }
 
     trace!("     | *nevents={:?}", events_count);
@@ -220,10 +281,31 @@ pub(crate) fn poll_oneoff(
     enc_pointee(memory, nevents, events_count)
 }
 
-pub(crate) fn sched_yield() -> Result<()> {
-    trace!("sched_yield()");
+fn wasi_clock_to_relative_ns_delay(
+    wasi_clock: host::__wasi_subscription_t___wasi_subscription_u___wasi_subscription_u_clock_t,
+) -> Result<u128> {
+    use std::time::SystemTime;
 
-    std::thread::yield_now();
+    if wasi_clock.flags != host::__WASI_SUBSCRIPTION_CLOCK_ABSTIME {
+        return Ok(u128::from(wasi_clock.timeout));
+    }
+    let now: u128 = SystemTime::now()
+        .duration_since(SystemTime::UNIX_EPOCH)
+        .map_err(|_| Error::ENOTCAPABLE)?
+        .as_nanos();
+    let deadline = u128::from(wasi_clock.timeout);
+    Ok(deadline.saturating_sub(now))
+}
 
-    Ok(())
+#[derive(Debug, Copy, Clone)]
+pub(crate) struct ClockEventData {
+    pub(crate) delay: u128,
+    pub(crate) userdata: host::__wasi_userdata_t,
+}
+
+#[derive(Debug)]
+pub(crate) struct FdEventData<'a> {
+    pub(crate) descriptor: &'a Descriptor,
+    pub(crate) type_: host::__wasi_eventtype_t,
+    pub(crate) userdata: host::__wasi_userdata_t,
 }

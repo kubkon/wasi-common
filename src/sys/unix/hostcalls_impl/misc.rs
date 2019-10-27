@@ -1,11 +1,10 @@
 #![allow(non_camel_case_types)]
 #![allow(unused_unsafe)]
+use crate::hostcalls_impl::{ClockEventData, FdEventData};
 use crate::sys::host_impl;
-use crate::{ctx::WasiCtx, host, Error, Result};
+use crate::{host, Error, Result};
 use nix::libc::{self, c_int};
-use std::cmp;
 use std::mem::MaybeUninit;
-use std::time::SystemTime;
 
 pub(crate) fn clock_res_get(clock_id: host::__wasi_clockid_t) -> Result<host::__wasi_timestamp_t> {
     // convert the supported clocks to the libc types, or return EINVAL
@@ -69,70 +68,14 @@ pub(crate) fn clock_time_get(clock_id: host::__wasi_clockid_t) -> Result<host::_
 }
 
 pub(crate) fn poll_oneoff(
-    wasi_ctx: &WasiCtx,
-    input: impl Iterator<Item = Result<host::__wasi_subscription_t>>,
+    timeout: Option<ClockEventData>,
+    fd_events: Vec<FdEventData>,
 ) -> Result<Vec<host::__wasi_event_t>> {
     use nix::{
         errno::Errno,
         poll::{poll, PollFd, PollFlags},
     };
-    use std::os::unix::prelude::AsRawFd;
-
-    let mut timeout: Option<ClockEventData> = None;
-    let mut fd_events = Vec::new();
-    for event in input {
-        let event = event?;
-        match event.type_ {
-            host::__WASI_EVENTTYPE_CLOCK => {
-                let clock = unsafe { event.u.clock };
-                log::debug!("poll_oneoff event.u.clock = {:?}", clock);
-                let delay = wasi_clock_to_relative_ns_delay(clock)? / 1_000_000; // in milliseconds!
-                log::debug!("poll_oneoff delay = {:?}ms", delay);
-                let current_event = ClockEventData {
-                    delay,
-                    userdata: event.userdata,
-                };
-                let timeout_event = timeout.get_or_insert(current_event);
-                if current_event.delay < timeout_event.delay {
-                    *timeout_event = current_event;
-                }
-            }
-            host::__WASI_EVENTTYPE_FD_READ => {
-                let wasi_fd = unsafe { event.u.fd_readwrite.fd };
-                let fd = unsafe {
-                    wasi_ctx
-                        .get_fd_entry(wasi_fd, host::__WASI_RIGHT_FD_READ, 0)?
-                        .fd_object
-                        .descriptor
-                        .as_raw_fd()
-                };
-                fd_events.push(FdEventData {
-                    fd,
-                    type_: event.type_,
-                    userdata: event.userdata,
-                })
-            }
-            host::__WASI_EVENTTYPE_FD_WRITE => {
-                let wasi_fd = unsafe { event.u.fd_readwrite.fd };
-                let fd = unsafe {
-                    wasi_ctx
-                        .get_fd_entry(wasi_fd, host::__WASI_RIGHT_FD_WRITE, 0)?
-                        .fd_object
-                        .descriptor
-                        .as_raw_fd()
-                };
-                fd_events.push(FdEventData {
-                    fd,
-                    type_: event.type_,
-                    userdata: event.userdata,
-                })
-            }
-            _ => unreachable!(),
-        }
-    }
-
-    log::debug!("poll_oneoff timeout = {:?}", timeout);
-    log::debug!("poll_oneoff fd_events = {:?}", fd_events);
+    use std::{convert::TryInto, os::unix::prelude::AsRawFd};
 
     if fd_events.is_empty() && timeout.is_none() {
         return Ok(vec![]);
@@ -150,15 +93,13 @@ pub(crate) fn poll_oneoff(
                 // events we filtered before. If we get something else here, the code has a serious bug.
                 _ => unreachable!(),
             };
-            PollFd::new(event.fd, flags)
+            PollFd::new(event.descriptor.as_raw_fd(), flags)
         })
         .collect();
 
-    let timeout = timeout.map(|ClockEventData { delay, userdata }| ClockEventData {
-        delay: cmp::min(delay, c_int::max_value() as u128),
-        userdata,
+    let poll_timeout = timeout.map_or(-1, |timeout| {
+        timeout.delay.try_into().unwrap_or(c_int::max_value())
     });
-    let poll_timeout = timeout.map_or(-1, |timeout| timeout.delay as c_int);
     let ready = loop {
         match poll(&mut poll_fds, poll_timeout) {
             Err(_) => {
@@ -171,68 +112,36 @@ pub(crate) fn poll_oneoff(
         }
     };
 
-    if ready == 0 {
-        Ok(poll_oneoff_handle_timeout_event(timeout))
+    Ok(if ready == 0 {
+        poll_oneoff_handle_timeout_event(timeout.expect("timeout should not be None"))
     } else {
         let events = fd_events.into_iter().zip(poll_fds.into_iter()).take(ready);
-        poll_oneoff_handle_fd_event(events)
-    }
-}
-
-#[derive(Debug, Copy, Clone)]
-struct ClockEventData {
-    delay: u128,
-    userdata: host::__wasi_userdata_t,
-}
-
-#[derive(Debug, Copy, Clone)]
-struct FdEventData {
-    fd: c_int,
-    type_: host::__wasi_eventtype_t,
-    userdata: host::__wasi_userdata_t,
+        poll_oneoff_handle_fd_event(events)?
+    })
 }
 
 // define the `fionread()` function, equivalent to `ioctl(fd, FIONREAD, *bytes)`
 nix::ioctl_read_bad!(fionread, nix::libc::FIONREAD, c_int);
 
-fn wasi_clock_to_relative_ns_delay(
-    wasi_clock: host::__wasi_subscription_t___wasi_subscription_u___wasi_subscription_u_clock_t,
-) -> Result<u128> {
-    if wasi_clock.flags != host::__WASI_SUBSCRIPTION_CLOCK_ABSTIME {
-        return Ok(u128::from(wasi_clock.timeout));
-    }
-    let now: u128 = SystemTime::now()
-        .duration_since(SystemTime::UNIX_EPOCH)
-        .map_err(|_| Error::ENOTCAPABLE)?
-        .as_nanos();
-    let deadline = u128::from(wasi_clock.timeout);
-    Ok(deadline.saturating_sub(now))
-}
-
-fn poll_oneoff_handle_timeout_event(timeout: Option<ClockEventData>) -> Vec<host::__wasi_event_t> {
-    if let Some(ClockEventData { userdata, .. }) = timeout {
-        vec![host::__wasi_event_t {
-            userdata,
-            type_: host::__WASI_EVENTTYPE_CLOCK,
-            error: host::__WASI_ESUCCESS,
-            u: host::__wasi_event_t___wasi_event_u {
-                fd_readwrite: host::__wasi_event_t___wasi_event_u___wasi_event_u_fd_readwrite_t {
-                    nbytes: 0,
-                    flags: 0,
-                },
+fn poll_oneoff_handle_timeout_event(timeout: ClockEventData) -> Vec<host::__wasi_event_t> {
+    vec![host::__wasi_event_t {
+        userdata: timeout.userdata,
+        type_: host::__WASI_EVENTTYPE_CLOCK,
+        error: host::__WASI_ESUCCESS,
+        u: host::__wasi_event_t___wasi_event_u {
+            fd_readwrite: host::__wasi_event_t___wasi_event_u___wasi_event_u_fd_readwrite_t {
+                nbytes: 0,
+                flags: 0,
             },
-        }]
-    } else {
-        // shouldn't happen
-        vec![]
-    }
+        },
+    }]
 }
 
-fn poll_oneoff_handle_fd_event(
-    events: impl Iterator<Item = (FdEventData, nix::poll::PollFd)>,
+fn poll_oneoff_handle_fd_event<'a>(
+    events: impl Iterator<Item = (FdEventData<'a>, nix::poll::PollFd)>,
 ) -> Result<Vec<host::__wasi_event_t>> {
     use nix::poll::PollFlags;
-    use std::convert::TryInto;
+    use std::{convert::TryInto, os::unix::prelude::AsRawFd};
 
     let mut output_events = Vec::new();
     for (fd_event, poll_fd) in events {
@@ -248,7 +157,7 @@ fn poll_oneoff_handle_fd_event(
 
         let mut nbytes = 0;
         if fd_event.type_ == host::__WASI_EVENTTYPE_FD_READ {
-            let _ = unsafe { fionread(fd_event.fd, &mut nbytes) };
+            let _ = unsafe { fionread(fd_event.descriptor.as_raw_fd(), &mut nbytes) };
         }
 
         let output_event = if revents.contains(PollFlags::POLLNVAL) {
