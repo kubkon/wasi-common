@@ -214,49 +214,74 @@ pub(crate) fn poll_oneoff(
     enc_pointee(memory, nevents, 0)?;
 
     let input_slice = dec_slice_of::<wasm32::__wasi_subscription_t>(memory, input, nsubscriptions)?;
+    let subscriptions = input_slice
+        .into_iter()
+        .map(dec_subscription)
+        .collect::<Result<Vec<_>>>()?;
+    let output_slice = dec_slice_of_mut::<wasm32::__wasi_event_t>(memory, output, nsubscriptions)?;
+    let mut output_slice_iter = output_slice.iter_mut();
+    let mut events_count = 0;
 
     let mut timeout: Option<ClockEventData> = None;
     let mut fd_events = Vec::new();
-    for event in input_slice.iter().map(dec_subscription) {
-        let event = event?;
-        match event.type_ {
+    for subscription in subscriptions {
+        match subscription.type_ {
             host::__WASI_EVENTTYPE_CLOCK => {
-                let clock = unsafe { event.u.clock };
+                let clock = unsafe { subscription.u.clock };
                 let delay = wasi_clock_to_relative_ns_delay(clock)?;
 
                 log::debug!("poll_oneoff event.u.clock = {:?}", clock);
                 log::debug!("poll_oneoff delay = {:?}ns", delay);
 
-                let current_event = ClockEventData {
+                let current = ClockEventData {
                     delay,
-                    userdata: event.userdata,
+                    userdata: subscription.userdata,
                 };
-                let timeout_event = timeout.get_or_insert(current_event);
-                if current_event.delay < timeout_event.delay {
-                    *timeout_event = current_event;
+                let timeout = timeout.get_or_insert(current);
+                if current.delay < timeout.delay {
+                    *timeout = current;
                 }
             }
             type_
                 if type_ == host::__WASI_EVENTTYPE_FD_READ
                     || type_ == host::__WASI_EVENTTYPE_FD_WRITE =>
             {
-                let wasi_fd = unsafe { event.u.fd_readwrite.fd };
+                let wasi_fd = unsafe { subscription.u.fd_readwrite.fd };
                 let rights = if type_ == host::__WASI_EVENTTYPE_FD_READ {
                     host::__WASI_RIGHT_FD_READ
                 } else {
                     host::__WASI_RIGHT_FD_WRITE
                 };
-                let descriptor = unsafe {
-                    &wasi_ctx
-                        .get_fd_entry(wasi_fd, rights, 0)?
-                        .fd_object
-                        .descriptor
-                };
-                fd_events.push(FdEventData {
-                    descriptor,
-                    type_: event.type_,
-                    userdata: event.userdata,
-                })
+
+                match unsafe {
+                    wasi_ctx
+                        .get_fd_entry(wasi_fd, rights, 0)
+                        .map(|fe| &fe.fd_object.descriptor)
+                } {
+                    Ok(descriptor) => fd_events.push(FdEventData {
+                        descriptor,
+                        type_: subscription.type_,
+                        userdata: subscription.userdata,
+                    }),
+                    Err(err) => {
+                        let event = host::__wasi_event_t {
+                            userdata: subscription.userdata,
+                            type_,
+                            error: err.as_wasi_errno(),
+                            u: host::__wasi_event_t___wasi_event_u {
+                                fd_readwrite: host::__wasi_event_t___wasi_event_u___wasi_event_u_fd_readwrite_t {
+                                    nbytes: 0,
+                                    flags: 0,
+                                }
+                            }
+                        };
+                        *output_slice_iter
+                            .next()
+                            .expect("number of subscriptions has to match number of events") =
+                            enc_event(event);
+                        events_count += 1;
+                    }
+                }
             }
             _ => unreachable!(),
         }
@@ -266,10 +291,7 @@ pub(crate) fn poll_oneoff(
     log::debug!("poll_oneoff fd_events = {:?}", fd_events);
 
     let events = hostcalls_impl::poll_oneoff(timeout, fd_events)?;
-    let output_slice = dec_slice_of_mut::<wasm32::__wasi_event_t>(memory, output, nsubscriptions)?;
-    let mut output_slice_iter = output_slice.iter_mut();
-    let events_count = events.len();
-
+    events_count += events.len();
     for event in events {
         *output_slice_iter
             .next()
