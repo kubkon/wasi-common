@@ -98,8 +98,11 @@ pub(crate) fn poll_oneoff(
         .collect();
 
     let poll_timeout = timeout.map_or(-1, |timeout| {
-        timeout.delay.try_into().unwrap_or(c_int::max_value())
+        let delay = timeout.delay / 1_000_000; // poll syscall requires delay to expressed in milliseconds
+        delay.try_into().unwrap_or(c_int::max_value())
     });
+    log::debug!("poll_oneoff poll_timeout = {:?}", poll_timeout);
+
     let ready = loop {
         match poll(&mut poll_fds, poll_timeout) {
             Err(_) => {

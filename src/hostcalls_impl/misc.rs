@@ -222,10 +222,10 @@ pub(crate) fn poll_oneoff(
         match event.type_ {
             host::__WASI_EVENTTYPE_CLOCK => {
                 let clock = unsafe { event.u.clock };
-                let delay = wasi_clock_to_relative_ns_delay(clock)? / 1_000_000; // in milliseconds!
+                let delay = wasi_clock_to_relative_ns_delay(clock)?;
 
                 log::debug!("poll_oneoff event.u.clock = {:?}", clock);
-                log::debug!("poll_oneoff delay = {:?}ms", delay);
+                log::debug!("poll_oneoff delay = {:?}ns", delay);
 
                 let current_event = ClockEventData {
                     delay,
@@ -299,7 +299,7 @@ fn wasi_clock_to_relative_ns_delay(
 
 #[derive(Debug, Copy, Clone)]
 pub(crate) struct ClockEventData {
-    pub(crate) delay: u128,
+    pub(crate) delay: u128, // delay is expressed in nanoseconds
     pub(crate) userdata: host::__wasi_userdata_t,
 }
 
