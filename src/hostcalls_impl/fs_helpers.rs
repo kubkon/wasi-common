@@ -45,15 +45,13 @@ pub(crate) fn path_get(
         return Err(Error::EILSEQ);
     }
 
-    if fe.fd_object.file_type != host::__WASI_FILETYPE_DIRECTORY {
+    if fe.file_type != host::__WASI_FILETYPE_DIRECTORY {
         // if `dirfd` doesn't refer to a directory, return `ENOTDIR`.
         return Err(Error::ENOTDIR);
     }
 
     let dirfd = fe
-        .validate_rights(rights_base, rights_inheriting)?
-        .fd_object
-        .descriptor
+        .as_descriptor(rights_base, rights_inheriting)?
         .as_file()?
         .try_clone()?;
 

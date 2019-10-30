@@ -188,63 +188,13 @@ impl WasiCtx {
         self.fds.contains_key(&fd)
     }
 
-    /// Get an immutable `FdEntry` corresponding to the specified raw WASI `fd` with
-    /// rights automatically validated.
-    ///
-    /// If you want to extract the `FdEntry` without validating the rights
-    /// at this stage, use `get_nonvalidated_fd_entry` instead.
-    pub(crate) unsafe fn get_fd_entry(
-        &self,
-        fd: host::__wasi_fd_t,
-        rights_base: host::__wasi_rights_t,
-        rights_inheriting: host::__wasi_rights_t,
-    ) -> Result<&FdEntry> {
-        if let Some(fe) = self.fds.get(&fd) {
-            fe.validate_rights(rights_base, rights_inheriting)?;
-            Ok(fe)
-        } else {
-            Err(Error::EBADF)
-        }
-    }
-
-    /// Get an immutable `FdEntry` corresponding to the specified raw WASI `fd` without
-    /// rights automatically validated.
-    ///
-    /// It is important to call `FdEntry::validate_rights` before extracting the underlying
-    /// `Descriptor` from the `FdEntry`.
-    pub(crate) unsafe fn get_nonvalidated_fd_entry(
-        &self,
-        fd: host::__wasi_fd_t,
-    ) -> Result<&FdEntry> {
+    /// Get an immutable `FdEntry` corresponding to the specified raw WASI `fd`.
+    pub(crate) unsafe fn get_fd_entry(&self, fd: host::__wasi_fd_t) -> Result<&FdEntry> {
         self.fds.get(&fd).ok_or(Error::EBADF)
     }
 
-    /// Get a mutable `FdEntry` corresponding to the specified raw WASI `fd` with
-    /// rights automatically validated.
-    ///
-    /// If you want to extract the `FdEntry` without validating the rights
-    /// at this stage, use `get_nonvalidated_fd_entry_mut` instead.
+    /// Get a mutable `FdEntry` corresponding to the specified raw WASI `fd`.
     pub(crate) unsafe fn get_fd_entry_mut(
-        &mut self,
-        fd: host::__wasi_fd_t,
-        rights_base: host::__wasi_rights_t,
-        rights_inheriting: host::__wasi_rights_t,
-    ) -> Result<&mut FdEntry> {
-        if let Some(fe) = self.fds.get_mut(&fd) {
-            fe.validate_rights(rights_base, rights_inheriting)?;
-            Ok(fe)
-        } else {
-            Err(Error::EBADF)
-        }
-    }
-
-    /// Get a mutable `FdEntry` corresponding to the specified raw WASI `fd` without
-    /// rights automatically validated.
-    ///
-    /// It is important to call `FdEntry::validate_rights` before extracting the underlying
-    /// `Descriptor` from the `FdEntry`.
-    #[allow(dead_code)]
-    pub(crate) unsafe fn get_nonvalidated_fd_entry_mut(
         &mut self,
         fd: host::__wasi_fd_t,
     ) -> Result<&mut FdEntry> {
