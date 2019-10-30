@@ -468,8 +468,8 @@ pub(crate) unsafe fn path_create_directory(
     trace!("     | (path_ptr,path_len)='{}'", path);
 
     let rights = host::__WASI_RIGHT_PATH_OPEN | host::__WASI_RIGHT_PATH_CREATE_DIRECTORY;
-    let fo = &wasi_ctx.get_fd_entry(dirfd, rights, 0)?.fd_object;
-    let resolved = path_get(fo, 0, path, false)?;
+    let fe = &wasi_ctx.get_nonvalidated_fd_entry(dirfd)?;
+    let resolved = path_get(fe, rights, 0, 0, path, false)?;
 
     hostcalls_impl::path_create_directory(resolved)
 }
@@ -506,14 +506,24 @@ pub(crate) unsafe fn path_link(
     trace!("     | (old_path_ptr,old_path_len)='{}'", old_path);
     trace!("     | (new_path_ptr,new_path_len)='{}'", new_path);
 
-    let old_fo = &wasi_ctx
-        .get_fd_entry(old_dirfd, host::__WASI_RIGHT_PATH_LINK_SOURCE, 0)?
-        .fd_object;
-    let new_fo = &wasi_ctx
-        .get_fd_entry(new_dirfd, host::__WASI_RIGHT_PATH_LINK_TARGET, 0)?
-        .fd_object;
-    let resolved_old = path_get(old_fo, 0, old_path, false)?;
-    let resolved_new = path_get(new_fo, 0, new_path, false)?;
+    let old_fe = &wasi_ctx.get_nonvalidated_fd_entry(old_dirfd)?;
+    let new_fe = &wasi_ctx.get_nonvalidated_fd_entry(new_dirfd)?;
+    let resolved_old = path_get(
+        old_fe,
+        host::__WASI_RIGHT_PATH_LINK_SOURCE,
+        0,
+        0,
+        old_path,
+        false,
+    )?;
+    let resolved_new = path_get(
+        new_fe,
+        host::__WASI_RIGHT_PATH_LINK_TARGET,
+        0,
+        0,
+        new_path,
+        false,
+    )?;
 
     hostcalls_impl::path_link(resolved_old, resolved_new)
 }
@@ -560,10 +570,15 @@ pub(crate) unsafe fn path_open(
 
     let (needed_base, needed_inheriting) =
         path_open_rights(fs_rights_base, fs_rights_inheriting, oflags, fs_flags);
-    let fo = &wasi_ctx
-        .get_fd_entry(dirfd, needed_base, needed_inheriting)?
-        .fd_object;
-    let resolved = path_get(fo, dirflags, path, oflags & host::__WASI_O_CREAT != 0)?;
+    let fe = &wasi_ctx.get_nonvalidated_fd_entry(dirfd)?;
+    let resolved = path_get(
+        fe,
+        needed_base,
+        needed_inheriting,
+        dirflags,
+        path,
+        oflags & host::__WASI_O_CREAT != 0,
+    )?;
 
     // which open mode do we need?
     let read = fs_rights_base & (host::__WASI_RIGHT_FD_READ | host::__WASI_RIGHT_FD_READDIR) != 0;
@@ -652,10 +667,8 @@ pub(crate) unsafe fn path_readlink(
 
     trace!("     | (path_ptr,path_len)='{}'", &path);
 
-    let fo = &wasi_ctx
-        .get_fd_entry(dirfd, host::__WASI_RIGHT_PATH_READLINK, 0)?
-        .fd_object;
-    let resolved = path_get(fo, 0, &path, false)?;
+    let fe = &wasi_ctx.get_nonvalidated_fd_entry(dirfd)?;
+    let resolved = path_get(fe, host::__WASI_RIGHT_PATH_READLINK, 0, 0, &path, false)?;
 
     let mut buf = dec_slice_of_mut::<u8>(memory, buf_ptr, buf_len)?;
 
@@ -697,14 +710,24 @@ pub(crate) unsafe fn path_rename(
     trace!("     | (old_path_ptr,old_path_len)='{}'", old_path);
     trace!("     | (new_path_ptr,new_path_len)='{}'", new_path);
 
-    let old_fo = &wasi_ctx
-        .get_fd_entry(old_dirfd, host::__WASI_RIGHT_PATH_RENAME_SOURCE, 0)?
-        .fd_object;
-    let new_fo = &wasi_ctx
-        .get_fd_entry(new_dirfd, host::__WASI_RIGHT_PATH_RENAME_TARGET, 0)?
-        .fd_object;
-    let resolved_old = path_get(old_fo, 0, old_path, true)?;
-    let resolved_new = path_get(new_fo, 0, new_path, true)?;
+    let old_fe = &wasi_ctx.get_nonvalidated_fd_entry(old_dirfd)?;
+    let new_fe = &wasi_ctx.get_nonvalidated_fd_entry(new_dirfd)?;
+    let resolved_old = path_get(
+        old_fe,
+        host::__WASI_RIGHT_PATH_RENAME_SOURCE,
+        0,
+        0,
+        old_path,
+        true,
+    )?;
+    let resolved_new = path_get(
+        new_fe,
+        host::__WASI_RIGHT_PATH_RENAME_TARGET,
+        0,
+        0,
+        new_path,
+        true,
+    )?;
 
     log::debug!("path_rename resolved_old={:?}", resolved_old);
     log::debug!("path_rename resolved_new={:?}", resolved_new);
@@ -843,10 +866,15 @@ pub(crate) unsafe fn path_filestat_get(
 
     trace!("     | (path_ptr,path_len)='{}'", path);
 
-    let fo = &wasi_ctx
-        .get_fd_entry(dirfd, host::__WASI_RIGHT_PATH_FILESTAT_GET, 0)?
-        .fd_object;
-    let resolved = path_get(fo, dirflags, path, false)?;
+    let fe = &wasi_ctx.get_nonvalidated_fd_entry(dirfd)?;
+    let resolved = path_get(
+        fe,
+        host::__WASI_RIGHT_PATH_FILESTAT_GET,
+        0,
+        dirflags,
+        path,
+        false,
+    )?;
     let host_filestat = hostcalls_impl::path_filestat_get(resolved, dirflags)?;
 
     trace!("     | *filestat_ptr={:?}", host_filestat);
@@ -885,10 +913,15 @@ pub(crate) unsafe fn path_filestat_set_times(
     let st_mtim = dec_timestamp(st_mtim);
     let fst_flags = dec_fstflags(fst_flags);
 
-    let fo = &wasi_ctx
-        .get_fd_entry(dirfd, host::__WASI_RIGHT_PATH_FILESTAT_SET_TIMES, 0)?
-        .fd_object;
-    let resolved = path_get(fo, dirflags, path, false)?;
+    let fe = &wasi_ctx.get_nonvalidated_fd_entry(dirfd)?;
+    let resolved = path_get(
+        fe,
+        host::__WASI_RIGHT_PATH_FILESTAT_SET_TIMES,
+        0,
+        dirflags,
+        path,
+        false,
+    )?;
 
     hostcalls_impl::path_filestat_set_times(resolved, dirflags, st_atim, st_mtim, fst_flags)
 }
@@ -920,10 +953,8 @@ pub(crate) unsafe fn path_symlink(
     trace!("     | (old_path_ptr,old_path_len)='{}'", old_path);
     trace!("     | (new_path_ptr,new_path_len)='{}'", new_path);
 
-    let fo = &wasi_ctx
-        .get_fd_entry(dirfd, host::__WASI_RIGHT_PATH_SYMLINK, 0)?
-        .fd_object;
-    let resolved_new = path_get(fo, 0, new_path, true)?;
+    let fe = &wasi_ctx.get_nonvalidated_fd_entry(dirfd)?;
+    let resolved_new = path_get(fe, host::__WASI_RIGHT_PATH_SYMLINK, 0, 0, new_path, true)?;
 
     hostcalls_impl::path_symlink(old_path, resolved_new)
 }
@@ -947,10 +978,8 @@ pub(crate) unsafe fn path_unlink_file(
 
     trace!("     | (path_ptr,path_len)='{}'", path);
 
-    let fo = &wasi_ctx
-        .get_fd_entry(dirfd, host::__WASI_RIGHT_PATH_UNLINK_FILE, 0)?
-        .fd_object;
-    let resolved = path_get(fo, 0, path, false)?;
+    let fe = &wasi_ctx.get_nonvalidated_fd_entry(dirfd)?;
+    let resolved = path_get(fe, host::__WASI_RIGHT_PATH_UNLINK_FILE, 0, 0, path, false)?;
 
     hostcalls_impl::path_unlink_file(resolved)
 }
@@ -974,10 +1003,15 @@ pub(crate) unsafe fn path_remove_directory(
 
     trace!("     | (path_ptr,path_len)='{}'", path);
 
-    let fo = &wasi_ctx
-        .get_fd_entry(dirfd, host::__WASI_RIGHT_PATH_REMOVE_DIRECTORY, 0)?
-        .fd_object;
-    let resolved = path_get(fo, 0, path, true)?;
+    let fe = &wasi_ctx.get_nonvalidated_fd_entry(dirfd)?;
+    let resolved = path_get(
+        fe,
+        host::__WASI_RIGHT_PATH_REMOVE_DIRECTORY,
+        0,
+        0,
+        path,
+        true,
+    )?;
 
     log::debug!("path_remove_directory resolved={:?}", resolved);
 

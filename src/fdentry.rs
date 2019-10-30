@@ -133,4 +133,17 @@ impl FdEntry {
             },
         )
     }
+
+    pub(crate) fn validate_rights(
+        &self,
+        rights_base: host::__wasi_rights_t,
+        rights_inheriting: host::__wasi_rights_t,
+    ) -> Result<&Self> {
+        if !self.rights_base & rights_base != 0 || !self.rights_inheriting & rights_inheriting != 0
+        {
+            Err(Error::ENOTCAPABLE)
+        } else {
+            Ok(&self)
+        }
+    }
 }
