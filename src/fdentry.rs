@@ -58,6 +58,14 @@ impl Descriptor {
     }
 }
 
+/// An abstraction struct serving as a wrapper for a host `Descriptor` object which requires
+/// certain base rights `rights_base` and inheriting rights `rights_inheriting` in order to be
+/// accessed correctly.
+///
+/// Here, the `descriptor` field stores the host `Descriptor` object (such as a file descriptor, or
+/// stdin handle), and accessing it can only be done via the provided `FdEntry::as_descriptor` and
+/// `FdEntry::as_descriptor_mut` methods which require a set of base and inheriting rights to be
+/// specified, verifying whether the stored `Descriptor` object is valid for the rights specified.
 #[derive(Debug)]
 pub(crate) struct FdEntry {
     pub(crate) file_type: host::__wasi_filetype_t,
@@ -121,6 +129,13 @@ impl FdEntry {
         )
     }
 
+    /// Convert this `FdEntry` into a host `Descriptor` object provided the specified
+    /// `rights_base` and `rights_inheriting` rights are set on this `FdEntry` object.
+    ///
+    /// The `FdEntry` can only be converted into a valid `Descriptor` object if
+    /// the specified set of base rights `rights_base`, and inheriting rights `rights_inheriting`
+    /// is a subset of rights attached to this `FdEntry`. The check is performed using
+    /// `FdEntry::validate_rights` method. If the check fails, `Error::ENOTCAPABLE` is returned.
     pub(crate) fn as_descriptor(
         &self,
         rights_base: host::__wasi_rights_t,
@@ -130,6 +145,13 @@ impl FdEntry {
         Ok(&self.descriptor)
     }
 
+    /// Convert this `FdEntry` into a mutable host `Descriptor` object provided the specified
+    /// `rights_base` and `rights_inheriting` rights are set on this `FdEntry` object.
+    ///
+    /// The `FdEntry` can only be converted into a valid `Descriptor` object if
+    /// the specified set of base rights `rights_base`, and inheriting rights `rights_inheriting`
+    /// is a subset of rights attached to this `FdEntry`. The check is performed using
+    /// `FdEntry::validate_rights` method. If the check fails, `Error::ENOTCAPABLE` is returned.
     pub(crate) fn as_descriptor_mut(
         &mut self,
         rights_base: host::__wasi_rights_t,
@@ -139,6 +161,11 @@ impl FdEntry {
         Ok(&mut self.descriptor)
     }
 
+    /// Check if this `FdEntry` object satisfies the specified base rights `rights_base`, and
+    /// inheriting rights `rights_inheriting`; i.e., if rights attached to this `FdEntry` object
+    /// are a superset.
+    ///
+    /// Upon unsuccessful check, `Error::ENOTCAPABLE` is returned.
     fn validate_rights(
         &self,
         rights_base: host::__wasi_rights_t,

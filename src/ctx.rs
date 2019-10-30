@@ -162,7 +162,7 @@ impl WasiCtxBuilder {
 
 #[derive(Debug)]
 pub struct WasiCtx {
-    pub(crate) fds: HashMap<host::__wasi_fd_t, FdEntry>,
+    fds: HashMap<host::__wasi_fd_t, FdEntry>,
     pub(crate) args: Vec<CString>,
     pub(crate) env: Vec<CString>,
 }
@@ -202,6 +202,9 @@ impl WasiCtx {
     }
 
     /// Insert the specified `FdEntry` into the `WasiCtx` object.
+    ///
+    /// The `FdEntry` will automatically get another free raw WASI `fd` assigned. Note that
+    /// the two subsequent free raw WASI `fd`s do not have to be stored contiguously.
     pub(crate) fn insert_fd_entry(&mut self, fe: FdEntry) -> Result<host::__wasi_fd_t> {
         // never insert where stdio handles usually are
         let mut fd = 3;
@@ -214,5 +217,20 @@ impl WasiCtx {
         }
         self.fds.insert(fd, fe);
         Ok(fd)
+    }
+
+    /// Insert the specified `FdEntry` with the specified raw WASI `fd` key into the `WasiCtx`
+    /// object.
+    pub(crate) fn insert_fd_entry_at(
+        &mut self,
+        fd: host::__wasi_fd_t,
+        fe: FdEntry,
+    ) -> Option<FdEntry> {
+        self.fds.insert(fd, fe)
+    }
+
+    /// Remove `FdEntry` corresponding to the specified raw WASI `fd` from the `WasiCtx` object.
+    pub(crate) fn remove_fd_entry(&mut self, fd: host::__wasi_fd_t) -> Result<FdEntry> {
+        self.fds.remove(&fd).ok_or(Error::EBADF)
     }
 }

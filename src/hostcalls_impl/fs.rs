@@ -17,14 +17,14 @@ pub(crate) unsafe fn fd_close(wasi_ctx: &mut WasiCtx, fd: wasm32::__wasi_fd_t) -
     trace!("fd_close(fd={:?})", fd);
 
     let fd = dec_fd(fd);
-    if let Some(fdent) = wasi_ctx.fds.get(&fd) {
+    if let Ok(fe) = wasi_ctx.get_fd_entry(fd) {
         // can't close preopened files
-        if fdent.preopen_path.is_some() {
+        if fe.preopen_path.is_some() {
             return Err(Error::ENOTSUP);
         }
     }
 
-    wasi_ctx.fds.remove(&fd).ok_or(Error::EBADF)?;
+    wasi_ctx.remove_fd_entry(fd)?;
     Ok(())
 }
 
@@ -209,9 +209,8 @@ pub(crate) unsafe fn fd_renumber(
         .as_file()
         .and_then(|file| FdEntry::duplicate(file))?;
 
-    // TODO clean this up
-    wasi_ctx.fds.insert(to, fe_from_dup);
-    wasi_ctx.fds.remove(&from);
+    wasi_ctx.insert_fd_entry_at(to, fe_from_dup);
+    wasi_ctx.remove_fd_entry(from)?;
 
     Ok(())
 }
