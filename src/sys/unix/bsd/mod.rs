@@ -29,10 +29,10 @@ pub(crate) mod host_impl {
     ) -> Result<wasi::__wasi_dirent_t> {
         let mut entry = unsafe { std::mem::zeroed::<wasi::__wasi_dirent_t>() };
         let d_type = dirent_filetype_from_host(host_entry)?;
-        entry.d_ino = memory::enc_inode(host_entry.d_ino);
-        entry.d_next = memory::enc_dircookie(host_entry.d_seekoff);
-        entry.d_namlen = memory::enc_u32(u32::from(host_entry.d_namlen));
-        entry.d_type = memory::enc_filetype(d_type);
+        entry.d_ino = host_entry.d_ino;
+        entry.d_next = host_entry.d_seekoff;
+        entry.d_namlen = u32::from(host_entry.d_namlen);
+        entry.d_type = d_type;
         Ok(entry)
     }
 }

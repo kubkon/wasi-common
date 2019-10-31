@@ -7,7 +7,7 @@ macro_rules! hostcalls {
                     Err(e) => e.as_wasi_errno(),
                 };
 
-                crate::hostcalls::return_enc_errno(ret)
+                ret
             }
     )*)
 }

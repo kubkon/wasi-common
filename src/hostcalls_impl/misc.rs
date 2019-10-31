@@ -26,7 +26,7 @@ pub(crate) fn args_get(
         let arg_bytes = arg.as_bytes_with_nul();
         let arg_ptr = argv_buf + argv_buf_offset;
 
-        enc_slice_of(memory, arg_bytes, arg_ptr)?;
+        enc_slice_of_u8(memory, arg_bytes, arg_ptr)?;
 
         argv.push(arg_ptr);
 
@@ -34,7 +34,7 @@ pub(crate) fn args_get(
         argv_buf_offset = argv_buf_offset.checked_add(len).ok_or(Error::EOVERFLOW)?;
     }
 
-    enc_slice_of(memory, argv.as_slice(), argv_ptr)
+    enc_slice_of_wasi32_uintptr(memory, argv.as_slice(), argv_ptr)
 }
 
 pub(crate) fn args_sizes_get(
@@ -84,7 +84,7 @@ pub(crate) fn environ_get(
         let env_bytes = pair.as_bytes_with_nul();
         let env_ptr = environ_buf + environ_buf_offset;
 
-        enc_slice_of(memory, env_bytes, env_ptr)?;
+        enc_slice_of_u8(memory, env_bytes, env_ptr)?;
 
         environ.push(env_ptr);
 
@@ -94,7 +94,7 @@ pub(crate) fn environ_get(
             .ok_or(Error::EOVERFLOW)?;
     }
 
-    enc_slice_of(memory, environ.as_slice(), environ_ptr)
+    enc_slice_of_wasi32_uintptr(memory, environ.as_slice(), environ_ptr)
 }
 
 pub(crate) fn environ_sizes_get(
@@ -136,7 +136,7 @@ pub(crate) fn random_get(
 
     trace!("random_get(buf_ptr={:#x?}, buf_len={:?})", buf_ptr, buf_len);
 
-    let buf = dec_slice_of_mut::<u8>(memory, buf_ptr, buf_len)?;
+    let buf = dec_slice_of_mut_u8(memory, buf_ptr, buf_len)?;
 
     thread_rng().fill_bytes(buf);
 
@@ -154,7 +154,6 @@ pub(crate) fn clock_res_get(
         resolution_ptr,
     );
 
-    let clock_id = dec_clockid(clock_id);
     let resolution = hostcalls_impl::clock_res_get(clock_id)?;
 
     trace!("     | *resolution_ptr={:?}", resolution);
@@ -175,7 +174,6 @@ pub(crate) fn clock_time_get(
         time_ptr,
     );
 
-    let clock_id = dec_clockid(clock_id);
     let time = hostcalls_impl::clock_time_get(clock_id)?;
 
     trace!("     | *time_ptr={:?}", time);
@@ -211,16 +209,10 @@ pub(crate) fn poll_oneoff(
         return Err(Error::EINVAL);
     }
 
-    enc_pointee(memory, nevents, 0)?;
+    enc_int_byref(memory, nevents, 0)?;
 
-    let input_slice = dec_slice_of::<wasi::__wasi_subscription_t>(memory, input, nsubscriptions)?;
-    let subscriptions = input_slice
-        .into_iter()
-        .map(dec_subscription)
-        .collect::<Result<Vec<_>>>()?;
-    let output_slice = dec_slice_of_mut::<wasi::__wasi_event_t>(memory, output, nsubscriptions)?;
-    let mut output_slice_iter = output_slice.iter_mut();
-    let mut events_count = 0;
+    let subscriptions = dec_subscriptions(memory, input, nsubscriptions)?;
+    let mut events = Vec::new();
 
     let mut timeout: Option<ClockEventData> = None;
     let mut fd_events = Vec::new();
@@ -277,11 +269,7 @@ pub(crate) fn poll_oneoff(
                             },
                             __bindgen_padding_0: 0,
                         };
-                        *output_slice_iter
-                            .next()
-                            .expect("number of subscriptions has to match number of events") =
-                            enc_event(event);
-                        events_count += 1;
+                        events.push(event);
                     }
                 };
             }
@@ -292,17 +280,15 @@ pub(crate) fn poll_oneoff(
     log::debug!("poll_oneoff timeout = {:?}", timeout);
     log::debug!("poll_oneoff fd_events = {:?}", fd_events);
 
-    let events = hostcalls_impl::poll_oneoff(timeout, fd_events)?;
-    events_count += events.len();
-    for event in events {
-        *output_slice_iter
-            .next()
-            .expect("number of subscriptions has to match number of events") = enc_event(event);
-    }
+    hostcalls_impl::poll_oneoff(timeout, fd_events, &mut events)?;
+
+    let events_count = u32::try_from(events.len()).map_err(|_| Error::EOVERFLOW)?;
+
+    enc_events(memory, output, nsubscriptions, events)?;
 
     trace!("     | *nevents={:?}", events_count);
 
-    enc_pointee(memory, nevents, events_count)
+    enc_int_byref(memory, nevents, events_count)
 }
 
 fn wasi_clock_to_relative_ns_delay(

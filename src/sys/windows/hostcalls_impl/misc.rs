@@ -33,6 +33,7 @@ pub(crate) fn clock_time_get(clock_id: wasi::__wasi_clockid_t) -> Result<wasi::_
 pub(crate) fn poll_oneoff(
     timeout: Option<ClockEventData>,
     fd_events: Vec<FdEventData>,
+    events: &mut Vec<wasi::__wasi_event_t>,
 ) -> Result<Vec<wasi::__wasi_event_t>> {
     unimplemented!("poll_oneoff")
 }

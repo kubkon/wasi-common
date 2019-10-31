@@ -1,6 +1,5 @@
 #![allow(non_camel_case_types)]
 use crate::ctx::WasiCtx;
-use crate::memory::*;
 use crate::{wasi, wasi32};
 use log::trace;
 
@@ -11,7 +10,7 @@ pub unsafe fn proc_exit(rval: wasi::__wasi_exitcode_t) {
     trace!("proc_exit(rval={:?})", rval);
     // TODO: Rather than call std::process::exit here, we should trigger a
     // stack unwind similar to a trap.
-    std::process::exit(dec_exitcode(rval) as i32);
+    std::process::exit(rval as i32);
 }
 
 #[wasi_common_cbindgen]

@@ -17,7 +17,6 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 pub(crate) unsafe fn fd_close(wasi_ctx: &mut WasiCtx, fd: wasi::__wasi_fd_t) -> Result<()> {
     trace!("fd_close(fd={:?})", fd);
 
-    let fd = dec_fd(fd);
     if let Ok(fe) = wasi_ctx.get_fd_entry(fd) {
         // can't close preopened files
         if fe.preopen_path.is_some() {
@@ -32,7 +31,6 @@ pub(crate) unsafe fn fd_close(wasi_ctx: &mut WasiCtx, fd: wasi::__wasi_fd_t) -> 
 pub(crate) unsafe fn fd_datasync(wasi_ctx: &WasiCtx, fd: wasi::__wasi_fd_t) -> Result<()> {
     trace!("fd_datasync(fd={:?})", fd);
 
-    let fd = dec_fd(fd);
     let fd = wasi_ctx
         .get_fd_entry(fd)?
         .as_descriptor(wasi::__WASI_RIGHT_FD_DATASYNC, 0)?
@@ -59,7 +57,6 @@ pub(crate) unsafe fn fd_pread(
         nread
     );
 
-    let fd = dec_fd(fd);
     let fd = wasi_ctx
         .get_fd_entry(fd)?
         .as_descriptor(wasi::__WASI_RIGHT_FD_READ, 0)?
@@ -67,7 +64,6 @@ pub(crate) unsafe fn fd_pread(
 
     let iovs = dec_iovec_slice(memory, iovs_ptr, iovs_len)?;
 
-    let offset = dec_filesize(offset);
     if offset > i64::max_value() as u64 {
         return Err(Error::EIO);
     }
@@ -110,14 +106,12 @@ pub(crate) unsafe fn fd_pwrite(
         nwritten
     );
 
-    let fd = dec_fd(fd);
     let fd = wasi_ctx
         .get_fd_entry(fd)?
         .as_descriptor(wasi::__WASI_RIGHT_FD_READ, 0)?
         .as_file()?;
     let iovs = dec_iovec_slice(memory, iovs_ptr, iovs_len)?;
 
-    let offset = dec_filesize(offset);
     if offset > i64::max_value() as u64 {
         return Err(Error::EIO);
     }
@@ -157,7 +151,6 @@ pub(crate) unsafe fn fd_read(
         .iter_mut()
         .map(|vec| host::iovec_to_host_mut(vec))
         .collect();
-    let fd = dec_fd(fd);
 
     let maybe_host_nread = match wasi_ctx
         .get_fd_entry_mut(fd)?
@@ -181,9 +174,6 @@ pub(crate) unsafe fn fd_renumber(
     to: wasi::__wasi_fd_t,
 ) -> Result<()> {
     trace!("fd_renumber(from={:?}, to={:?})", from, to);
-
-    let from = dec_fd(from);
-    let to = dec_fd(to);
 
     if !wasi_ctx.contains_fd_entry(from) || !wasi_ctx.contains_fd_entry(to) {
         return Err(Error::EBADF);
@@ -232,10 +222,6 @@ pub(crate) unsafe fn fd_seek(
         newoffset
     );
 
-    let fd = dec_fd(fd);
-    let offset = dec_filedelta(offset);
-    let whence = dec_whence(whence);
-
     let rights = if offset == 0 && whence == wasi::__WASI_WHENCE_CUR {
         wasi::__WASI_RIGHT_FD_TELL
     } else {
@@ -267,7 +253,6 @@ pub(crate) unsafe fn fd_tell(
 ) -> Result<()> {
     trace!("fd_tell(fd={:?}, newoffset={:#x?})", fd, newoffset);
 
-    let fd = dec_fd(fd);
     let fd = wasi_ctx
         .get_fd_entry_mut(fd)?
         .as_descriptor_mut(wasi::__WASI_RIGHT_FD_TELL, 0)?
@@ -289,7 +274,6 @@ pub(crate) unsafe fn fd_fdstat_get(
     trace!("fd_fdstat_get(fd={:?}, fdstat_ptr={:#x?})", fd, fdstat_ptr);
 
     let mut fdstat = dec_fdstat_byref(memory, fdstat_ptr)?;
-    let fd = dec_fd(fd);
     let wasi_fd = wasi_ctx.get_fd_entry(fd)?.as_descriptor(0, 0)?.as_file()?;
 
     let fs_flags = hostcalls_impl::fd_fdstat_get(wasi_fd)?;
@@ -312,8 +296,6 @@ pub(crate) unsafe fn fd_fdstat_set_flags(
 ) -> Result<()> {
     trace!("fd_fdstat_set_flags(fd={:?}, fdflags={:#x?})", fd, fdflags);
 
-    let fdflags = dec_fdflags(fdflags);
-    let fd = dec_fd(fd);
     let fd = wasi_ctx.get_fd_entry(fd)?.as_descriptor(0, 0)?.as_file()?;
 
     hostcalls_impl::fd_fdstat_set_flags(fd, fdflags)
@@ -332,7 +314,6 @@ pub(crate) unsafe fn fd_fdstat_set_rights(
         fs_rights_inheriting
     );
 
-    let fd = dec_fd(fd);
     let fe = &mut wasi_ctx.get_fd_entry_mut(fd)?;
 
     if fe.rights_base & fs_rights_base != fs_rights_base
@@ -349,7 +330,6 @@ pub(crate) unsafe fn fd_fdstat_set_rights(
 pub(crate) unsafe fn fd_sync(wasi_ctx: &WasiCtx, fd: wasi::__wasi_fd_t) -> Result<()> {
     trace!("fd_sync(fd={:?})", fd);
 
-    let fd = dec_fd(fd);
     let fd = wasi_ctx
         .get_fd_entry(fd)?
         .as_descriptor(wasi::__WASI_RIGHT_FD_SYNC, 0)?
@@ -373,7 +353,6 @@ pub(crate) unsafe fn fd_write(
         nwritten
     );
 
-    let fd = dec_fd(fd);
     let iovs = dec_iovec_slice(memory, iovs_ptr, iovs_len)?;
     let iovs: Vec<io::IoSlice> = iovs.iter().map(|vec| host::iovec_to_host(vec)).collect();
 
@@ -415,10 +394,6 @@ pub(crate) unsafe fn fd_advise(
         advice
     );
 
-    let fd = dec_fd(fd);
-    let advice = dec_advice(advice);
-    let offset = dec_filesize(offset);
-    let len = dec_filesize(len);
     let fd = wasi_ctx
         .get_fd_entry(fd)?
         .as_descriptor(wasi::__WASI_RIGHT_FD_ADVISE, 0)?
@@ -435,9 +410,6 @@ pub(crate) unsafe fn fd_allocate(
 ) -> Result<()> {
     trace!("fd_allocate(fd={:?}, offset={}, len={})", fd, offset, len);
 
-    let fd = dec_fd(fd);
-    let offset = dec_filesize(offset);
-    let len = dec_filesize(len);
     let fd = wasi_ctx
         .get_fd_entry(fd)?
         .as_descriptor(wasi::__WASI_RIGHT_FD_ALLOCATE, 0)?
@@ -473,8 +445,7 @@ pub(crate) unsafe fn path_create_directory(
         path_len,
     );
 
-    let dirfd = dec_fd(dirfd);
-    let path = dec_slice_of::<u8>(memory, path_ptr, path_len).and_then(helpers::path_from_slice)?;
+    let path = dec_slice_of_u8(memory, path_ptr, path_len).and_then(helpers::path_from_slice)?;
 
     trace!("     | (path_ptr,path_len)='{}'", path);
 
@@ -507,12 +478,8 @@ pub(crate) unsafe fn path_link(
         new_path_len,
     );
 
-    let old_dirfd = dec_fd(old_dirfd);
-    let new_dirfd = dec_fd(new_dirfd);
-    let old_path =
-        dec_slice_of::<u8>(memory, old_path_ptr, old_path_len).and_then(path_from_slice)?;
-    let new_path =
-        dec_slice_of::<u8>(memory, new_path_ptr, new_path_len).and_then(path_from_slice)?;
+    let old_path = dec_slice_of_u8(memory, old_path_ptr, old_path_len).and_then(path_from_slice)?;
+    let new_path = dec_slice_of_u8(memory, new_path_ptr, new_path_len).and_then(path_from_slice)?;
 
     trace!("     | (old_path_ptr,old_path_len)='{}'", old_path);
     trace!("     | (new_path_ptr,new_path_len)='{}'", new_path);
@@ -568,14 +535,7 @@ pub(crate) unsafe fn path_open(
     // pre-encode fd_out_ptr to -1 in case of error in opening a path
     enc_fd_byref(memory, fd_out_ptr, wasi::__wasi_fd_t::max_value())?;
 
-    let dirfd = dec_fd(dirfd);
-    let dirflags = dec_lookupflags(dirflags);
-    let oflags = dec_oflags(oflags);
-    let fs_rights_base = dec_rights(fs_rights_base);
-    let fs_rights_inheriting = dec_rights(fs_rights_inheriting);
-    let fs_flags = dec_fdflags(fs_flags);
-
-    let path = dec_slice_of::<u8>(memory, path_ptr, path_len).and_then(path_from_slice)?;
+    let path = dec_slice_of_u8(memory, path_ptr, path_len).and_then(path_from_slice)?;
 
     trace!("     | (path_ptr,path_len)='{}'", path);
 
@@ -634,16 +594,13 @@ pub(crate) unsafe fn fd_readdir(
 
     enc_usize_byref(memory, buf_used, 0)?;
 
-    let fd = dec_fd(fd);
     let file = wasi_ctx
         .get_fd_entry_mut(fd)?
         .as_descriptor_mut(wasi::__WASI_RIGHT_FD_READDIR, 0)?
         .as_file_mut()?;
-    let host_buf = dec_slice_of_mut::<u8>(memory, buf, buf_len)?;
+    let host_buf = dec_slice_of_mut_u8(memory, buf, buf_len)?;
 
     trace!("     | (buf,buf_len)={:?}", host_buf);
-
-    let cookie = dec_dircookie(cookie);
 
     let host_bufused = hostcalls_impl::fd_readdir(file, host_buf, cookie)?;
 
@@ -674,15 +631,14 @@ pub(crate) unsafe fn path_readlink(
 
     enc_usize_byref(memory, buf_used, 0)?;
 
-    let dirfd = dec_fd(dirfd);
-    let path = dec_slice_of::<u8>(memory, path_ptr, path_len).and_then(helpers::path_from_slice)?;
+    let path = dec_slice_of_u8(memory, path_ptr, path_len).and_then(helpers::path_from_slice)?;
 
     trace!("     | (path_ptr,path_len)='{}'", &path);
 
     let fe = &wasi_ctx.get_fd_entry(dirfd)?;
     let resolved = path_get(fe, wasi::__WASI_RIGHT_PATH_READLINK, 0, 0, &path, false)?;
 
-    let mut buf = dec_slice_of_mut::<u8>(memory, buf_ptr, buf_len)?;
+    let mut buf = dec_slice_of_mut_u8(memory, buf_ptr, buf_len)?;
 
     let host_bufused = hostcalls_impl::path_readlink(resolved, &mut buf)?;
 
@@ -712,12 +668,8 @@ pub(crate) unsafe fn path_rename(
         new_path_len,
     );
 
-    let old_dirfd = dec_fd(old_dirfd);
-    let new_dirfd = dec_fd(new_dirfd);
-    let old_path =
-        dec_slice_of::<u8>(memory, old_path_ptr, old_path_len).and_then(path_from_slice)?;
-    let new_path =
-        dec_slice_of::<u8>(memory, new_path_ptr, new_path_len).and_then(path_from_slice)?;
+    let old_path = dec_slice_of_u8(memory, old_path_ptr, old_path_len).and_then(path_from_slice)?;
+    let new_path = dec_slice_of_u8(memory, new_path_ptr, new_path_len).and_then(path_from_slice)?;
 
     trace!("     | (old_path_ptr,old_path_len)='{}'", old_path);
     trace!("     | (new_path_ptr,new_path_len)='{}'", new_path);
@@ -759,7 +711,6 @@ pub(crate) unsafe fn fd_filestat_get(
         filestat_ptr
     );
 
-    let fd = dec_fd(fd);
     let fd = wasi_ctx.get_fd_entry(fd)?.as_descriptor(0, 0)?.as_file()?;
 
     let host_filestat = hostcalls_impl::fd_filestat_get_impl(fd)?;
@@ -784,15 +735,10 @@ pub(crate) unsafe fn fd_filestat_set_times(
         fst_flags
     );
 
-    let fd = dec_fd(fd);
     let fd = wasi_ctx
         .get_fd_entry(fd)?
         .as_descriptor(wasi::__WASI_RIGHT_FD_FILESTAT_SET_TIMES, 0)?
         .as_file()?;
-
-    let st_atim = dec_timestamp(st_atim);
-    let st_mtim = dec_timestamp(st_mtim);
-    let fst_flags = dec_fstflags(fst_flags);
 
     fd_filestat_set_times_impl(fd, st_atim, st_mtim, fst_flags)
 }
@@ -840,13 +786,11 @@ pub(crate) unsafe fn fd_filestat_set_size(
 ) -> Result<()> {
     trace!("fd_filestat_set_size(fd={:?}, st_size={})", fd, st_size);
 
-    let fd = dec_fd(fd);
     let fd = wasi_ctx
         .get_fd_entry(fd)?
         .as_descriptor(wasi::__WASI_RIGHT_FD_FILESTAT_SET_SIZE, 0)?
         .as_file()?;
 
-    let st_size = dec_filesize(st_size);
     // This check will be unnecessary when rust-lang/rust#63326 is fixed
     if st_size > i64::max_value() as u64 {
         return Err(Error::E2BIG);
@@ -872,9 +816,7 @@ pub(crate) unsafe fn path_filestat_get(
         filestat_ptr
     );
 
-    let dirfd = dec_fd(dirfd);
-    let dirflags = dec_lookupflags(dirflags);
-    let path = dec_slice_of::<u8>(memory, path_ptr, path_len).and_then(path_from_slice)?;
+    let path = dec_slice_of_u8(memory, path_ptr, path_len).and_then(path_from_slice)?;
 
     trace!("     | (path_ptr,path_len)='{}'", path);
 
@@ -915,15 +857,9 @@ pub(crate) unsafe fn path_filestat_set_times(
         fst_flags
     );
 
-    let dirfd = dec_fd(dirfd);
-    let dirflags = dec_lookupflags(dirflags);
-    let path = dec_slice_of::<u8>(memory, path_ptr, path_len).and_then(path_from_slice)?;
+    let path = dec_slice_of_u8(memory, path_ptr, path_len).and_then(path_from_slice)?;
 
     trace!("     | (path_ptr,path_len)='{}'", path);
-
-    let st_atim = dec_timestamp(st_atim);
-    let st_mtim = dec_timestamp(st_mtim);
-    let fst_flags = dec_fstflags(fst_flags);
 
     let fe = &wasi_ctx.get_fd_entry(dirfd)?;
     let resolved = path_get(
@@ -956,11 +892,8 @@ pub(crate) unsafe fn path_symlink(
         new_path_len
     );
 
-    let dirfd = dec_fd(dirfd);
-    let old_path =
-        dec_slice_of::<u8>(memory, old_path_ptr, old_path_len).and_then(path_from_slice)?;
-    let new_path =
-        dec_slice_of::<u8>(memory, new_path_ptr, new_path_len).and_then(path_from_slice)?;
+    let old_path = dec_slice_of_u8(memory, old_path_ptr, old_path_len).and_then(path_from_slice)?;
+    let new_path = dec_slice_of_u8(memory, new_path_ptr, new_path_len).and_then(path_from_slice)?;
 
     trace!("     | (old_path_ptr,old_path_len)='{}'", old_path);
     trace!("     | (new_path_ptr,new_path_len)='{}'", new_path);
@@ -985,8 +918,7 @@ pub(crate) unsafe fn path_unlink_file(
         path_len
     );
 
-    let dirfd = dec_fd(dirfd);
-    let path = dec_slice_of::<u8>(memory, path_ptr, path_len).and_then(path_from_slice)?;
+    let path = dec_slice_of_u8(memory, path_ptr, path_len).and_then(path_from_slice)?;
 
     trace!("     | (path_ptr,path_len)='{}'", path);
 
@@ -1010,8 +942,7 @@ pub(crate) unsafe fn path_remove_directory(
         path_len
     );
 
-    let dirfd = dec_fd(dirfd);
-    let path = dec_slice_of::<u8>(memory, path_ptr, path_len).and_then(path_from_slice)?;
+    let path = dec_slice_of_u8(memory, path_ptr, path_len).and_then(path_from_slice)?;
 
     trace!("     | (path_ptr,path_len)='{}'", path);
 
@@ -1042,7 +973,6 @@ pub(crate) unsafe fn fd_prestat_get(
         prestat_ptr
     );
 
-    let fd = dec_fd(fd);
     // TODO: should we validate any rights here?
     let fe = &wasi_ctx.get_fd_entry(fd)?;
     let po_path = fe.preopen_path.as_ref().ok_or(Error::ENOTSUP)?;
@@ -1080,7 +1010,6 @@ pub(crate) unsafe fn fd_prestat_dir_name(
         path_len
     );
 
-    let fd = dec_fd(fd);
     // TODO: should we validate any rights here?
     let fe = &wasi_ctx.get_fd_entry(fd)?;
     let po_path = fe.preopen_path.as_ref().ok_or(Error::ENOTSUP)?;
@@ -1096,7 +1025,7 @@ pub(crate) unsafe fn fd_prestat_dir_name(
 
     trace!("     | (path_ptr,path_len)='{}'", path);
 
-    enc_slice_of(memory, path.as_bytes(), path_ptr)
+    enc_slice_of_u8(memory, path.as_bytes(), path_ptr)
 }
 
 #[allow(dead_code)] // trouble with sockets

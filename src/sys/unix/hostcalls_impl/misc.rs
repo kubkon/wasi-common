@@ -70,7 +70,8 @@ pub(crate) fn clock_time_get(clock_id: wasi::__wasi_clockid_t) -> Result<wasi::_
 pub(crate) fn poll_oneoff(
     timeout: Option<ClockEventData>,
     fd_events: Vec<FdEventData>,
-) -> Result<Vec<wasi::__wasi_event_t>> {
+    events: &mut Vec<wasi::__wasi_event_t>,
+) -> Result<()> {
     use nix::{
         errno::Errno,
         poll::{poll, PollFd, PollFlags},
@@ -78,7 +79,7 @@ pub(crate) fn poll_oneoff(
     use std::{convert::TryInto, os::unix::prelude::AsRawFd};
 
     if fd_events.is_empty() && timeout.is_none() {
-        return Ok(vec![]);
+        return Ok(());
     }
 
     let mut poll_fds: Vec<_> = fd_events
@@ -116,18 +117,21 @@ pub(crate) fn poll_oneoff(
     };
 
     Ok(if ready == 0 {
-        poll_oneoff_handle_timeout_event(timeout.expect("timeout should not be None"))
+        poll_oneoff_handle_timeout_event(timeout.expect("timeout should not be None"), events)
     } else {
-        let events = fd_events.into_iter().zip(poll_fds.into_iter()).take(ready);
-        poll_oneoff_handle_fd_event(events)?
+        let ready_events = fd_events.into_iter().zip(poll_fds.into_iter()).take(ready);
+        poll_oneoff_handle_fd_event(ready_events, events)?
     })
 }
 
 // define the `fionread()` function, equivalent to `ioctl(fd, FIONREAD, *bytes)`
 nix::ioctl_read_bad!(fionread, nix::libc::FIONREAD, c_int);
 
-fn poll_oneoff_handle_timeout_event(timeout: ClockEventData) -> Vec<wasi::__wasi_event_t> {
-    vec![wasi::__wasi_event_t {
+fn poll_oneoff_handle_timeout_event(
+    timeout: ClockEventData,
+    events: &mut Vec<wasi::__wasi_event_t>,
+) {
+    events.push(wasi::__wasi_event_t {
         userdata: timeout.userdata,
         type_: wasi::__WASI_EVENTTYPE_CLOCK,
         error: wasi::__WASI_ESUCCESS,
@@ -139,17 +143,17 @@ fn poll_oneoff_handle_timeout_event(timeout: ClockEventData) -> Vec<wasi::__wasi
             },
         },
         __bindgen_padding_0: 0,
-    }]
+    });
 }
 
 fn poll_oneoff_handle_fd_event<'a>(
-    events: impl Iterator<Item = (FdEventData<'a>, nix::poll::PollFd)>,
-) -> Result<Vec<wasi::__wasi_event_t>> {
+    ready_events: impl Iterator<Item = (FdEventData<'a>, nix::poll::PollFd)>,
+    events: &mut Vec<wasi::__wasi_event_t>,
+) -> Result<()> {
     use nix::poll::PollFlags;
     use std::{convert::TryInto, os::unix::prelude::AsRawFd};
 
-    let mut output_events = Vec::new();
-    for (fd_event, poll_fd) in events {
+    for (fd_event, poll_fd) in ready_events {
         log::debug!("poll_oneoff_handle_fd_event fd_event = {:?}", fd_event);
         log::debug!("poll_oneoff_handle_fd_event poll_fd = {:?}", poll_fd);
 
@@ -229,8 +233,8 @@ fn poll_oneoff_handle_fd_event<'a>(
             continue;
         };
 
-        output_events.push(output_event);
+        events.push(output_event);
     }
 
-    Ok(output_events)
+    Ok(())
 }
