@@ -10,20 +10,8 @@ use wig::witx_host_types;
 
 witx_host_types!("unstable" "wasi_unstable_preview0");
 
-#[allow(unused)]
 pub(crate) unsafe fn ciovec_to_host(ciovec: &__wasi_ciovec_t) -> io::IoSlice {
     let slice = slice::from_raw_parts(ciovec.buf as *const u8, ciovec.buf_len);
-    io::IoSlice::new(slice)
-}
-
-#[allow(unused)]
-pub(crate) unsafe fn ciovec_to_host_mut(ciovec: &mut __wasi_ciovec_t) -> io::IoSliceMut {
-    let slice = slice::from_raw_parts_mut(ciovec.buf as *mut u8, ciovec.buf_len);
-    io::IoSliceMut::new(slice)
-}
-
-pub(crate) unsafe fn iovec_to_host(iovec: &__wasi_iovec_t) -> io::IoSlice {
-    let slice = slice::from_raw_parts(iovec.buf as *const u8, iovec.buf_len);
     io::IoSlice::new(slice)
 }
 
