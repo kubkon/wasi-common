@@ -1,19 +1,81 @@
 use crate::fdentry::FdEntry;
-use crate::sys::dev_null;
 use crate::{wasi, Error, Result};
 use std::borrow::Borrow;
 use std::collections::HashMap;
 use std::env;
-use std::ffi::CString;
+use std::ffi::{CString, OsString};
 use std::fs::File;
 use std::path::{Path, PathBuf};
 
+enum PendingFdEntry {
+    Thunk(fn() -> Result<FdEntry>),
+    File(File),
+}
+
+impl std::fmt::Debug for PendingFdEntry {
+    fn fmt(&self, fmt: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            PendingFdEntry::Thunk(f) => write!(
+                fmt,
+                "PendingFdEntry::Thunk({:p})",
+                f as *const fn() -> Result<FdEntry>
+            ),
+            PendingFdEntry::File(f) => write!(fmt, "PendingFdEntry::File({:?})", f),
+        }
+    }
+}
+
+#[derive(Debug, Eq, Hash, PartialEq)]
+enum PendingCString {
+    Bytes(Vec<u8>),
+    OsString(OsString),
+}
+
+impl From<Vec<u8>> for PendingCString {
+    fn from(bytes: Vec<u8>) -> Self {
+        Self::Bytes(bytes)
+    }
+}
+
+impl From<OsString> for PendingCString {
+    fn from(s: OsString) -> Self {
+        Self::OsString(s)
+    }
+}
+
+impl PendingCString {
+    #[cfg(not(windows))]
+    fn into_bytes(self) -> Result<Vec<u8>> {
+        use std::os::unix::ffi::OsStringExt;
+        match self {
+            PendingCString::Bytes(v) => Ok(v),
+            // on Unix, we use the bytes from the CString directly
+            PendingCString::OsString(s) => Ok(s.into_vec()),
+        }
+    }
+
+    #[cfg(windows)]
+    fn into_bytes(self) -> Result<Vec<u8>> {
+        match self {
+            PendingCString::Bytes(v) => Ok(v),
+            // on Windows, we go through conversion into a `String` in order to get bytes
+            PendingCString::OsString(s) => s.into_string().map(|s| s.into_bytes()),
+        }
+        .map_err(|_| Error::ENOTCAPABLE)
+    }
+
+    fn into_cstring(self) -> Result<CString> {
+        self.into_bytes()
+            .and_then(|v| CString::new(v).map_err(|_| Error::ENOTCAPABLE))
+    }
+}
+
 /// A builder allowing customizable construction of `WasiCtx` instances.
 pub struct WasiCtxBuilder {
-    fds: HashMap<wasi::__wasi_fd_t, FdEntry>,
+    fds: HashMap<wasi::__wasi_fd_t, PendingFdEntry>,
     preopens: Vec<(PathBuf, File)>,
-    args: Vec<CString>,
-    env: HashMap<CString, CString>,
+    args: Vec<PendingCString>,
+    env: HashMap<PendingCString, PendingCString>,
 }
 
 impl WasiCtxBuilder {
@@ -26,91 +88,98 @@ impl WasiCtxBuilder {
             env: HashMap::new(),
         };
 
-        builder.fds.insert(0, FdEntry::from(dev_null()?)?);
-        builder.fds.insert(1, FdEntry::from(dev_null()?)?);
-        builder.fds.insert(2, FdEntry::from(dev_null()?)?);
+        builder.fds.insert(0, PendingFdEntry::Thunk(FdEntry::null));
+        builder.fds.insert(1, PendingFdEntry::Thunk(FdEntry::null));
+        builder.fds.insert(2, PendingFdEntry::Thunk(FdEntry::null));
 
         Ok(builder)
     }
 
     /// Add arguments to the command-line arguments list.
-    pub fn args<S: AsRef<str>>(mut self, args: impl Iterator<Item = S>) -> Result<Self> {
-        let args: Result<Vec<CString>> = args
-            .map(|arg| CString::new(arg.as_ref()).map_err(|_| Error::ENOTCAPABLE))
-            .collect();
-        self.args = args?;
+    ///
+    /// Arguments must not contain NUL bytes, or `WasiCtxBuilder::build()` will fail with
+    /// `Error::ENOTCAPABLE`.
+    pub fn args<S: AsRef<[u8]>>(mut self, args: impl Iterator<Item = S>) -> Result<Self> {
+        self.args = args.map(|arg| arg.as_ref().to_vec().into()).collect();
         Ok(self)
     }
 
     /// Add an argument to the command-line arguments list.
-    pub fn arg(mut self, arg: &str) -> Result<Self> {
-        self.args
-            .push(CString::new(arg).map_err(|_| Error::ENOTCAPABLE)?);
+    ///
+    /// Arguments must not contain NUL bytes, or `WasiCtxBuilder::build()` will fail with
+    /// `Error::ENOTCAPABLE`.
+    pub fn arg<S: AsRef<[u8]>>(mut self, arg: S) -> Result<Self> {
+        self.args.push(arg.as_ref().to_vec().into());
         Ok(self)
     }
 
     /// Inherit the command-line arguments from the host process.
-    pub fn inherit_args(self) -> Result<Self> {
-        self.args(env::args())
+    pub fn inherit_args(mut self) -> Result<Self> {
+        self.args = env::args_os().map(PendingCString::OsString).collect();
+        Ok(self)
     }
 
     /// Inherit the stdin, stdout, and stderr streams from the host process.
     pub fn inherit_stdio(mut self) -> Result<Self> {
-        self.fds.insert(0, FdEntry::duplicate_stdin()?);
-        self.fds.insert(1, FdEntry::duplicate_stdout()?);
-        self.fds.insert(2, FdEntry::duplicate_stderr()?);
+        self.fds
+            .insert(0, PendingFdEntry::Thunk(FdEntry::duplicate_stdin));
+        self.fds
+            .insert(1, PendingFdEntry::Thunk(FdEntry::duplicate_stdout));
+        self.fds
+            .insert(2, PendingFdEntry::Thunk(FdEntry::duplicate_stderr));
         Ok(self)
     }
 
     /// Inherit the environment variables from the host process.
-    pub fn inherit_env(self) -> Result<Self> {
-        self.envs(std::env::vars())
+    pub fn inherit_env(mut self) -> Result<Self> {
+        self.env = std::env::vars_os()
+            .map(|(k, v)| (k.into(), v.into()))
+            .collect();
+        Ok(self)
     }
 
     /// Add an entry to the environment.
-    pub fn env<S: AsRef<str>>(mut self, k: S, v: S) -> Result<Self> {
-        self.env.insert(
-            CString::new(k.as_ref()).map_err(|_| Error::ENOTCAPABLE)?,
-            CString::new(v.as_ref()).map_err(|_| Error::ENOTCAPABLE)?,
-        );
+    ///
+    /// Environment variable keys and values must not contain NUL bytes, or
+    /// `WasiCtxBuilder::build()` will fail with `Error::ENOTCAPABLE`.
+    pub fn env<S: AsRef<[u8]>>(mut self, k: S, v: S) -> Result<Self> {
+        self.env
+            .insert(k.as_ref().to_vec().into(), v.as_ref().to_vec().into());
         Ok(self)
     }
 
     /// Add entries to the environment.
-    pub fn envs<S: AsRef<str>, T: Borrow<(S, S)>>(
+    ///
+    /// Environment variable keys and values must not contain NUL bytes, or
+    /// `WasiCtxBuilder::build()` will fail with `Error::ENOTCAPABLE`.
+    pub fn envs<S: AsRef<[u8]>, T: Borrow<(S, S)>>(
         mut self,
         envs: impl Iterator<Item = T>,
     ) -> Result<Self> {
-        let env: Result<HashMap<CString, CString>> = envs
+        self.env = envs
             .map(|t| {
                 let (k, v) = t.borrow();
-                let k = CString::new(k.as_ref()).map_err(|_| Error::ENOTCAPABLE);
-                let v = CString::new(v.as_ref()).map_err(|_| Error::ENOTCAPABLE);
-                match (k, v) {
-                    (Ok(k), Ok(v)) => Ok((k, v)),
-                    _ => Err(Error::ENOTCAPABLE),
-                }
+                (k.as_ref().to_vec().into(), v.as_ref().to_vec().into())
             })
             .collect();
-        self.env = env?;
         Ok(self)
     }
 
     /// Provide a File to use as stdin
     pub fn stdin(mut self, file: File) -> Result<Self> {
-        self.fds.insert(0, FdEntry::from(file)?);
+        self.fds.insert(0, PendingFdEntry::File(file));
         Ok(self)
     }
 
     /// Provide a File to use as stdout
     pub fn stdout(mut self, file: File) -> Result<Self> {
-        self.fds.insert(1, FdEntry::from(file)?);
+        self.fds.insert(1, PendingFdEntry::File(file));
         Ok(self)
     }
 
     /// Provide a File to use as stderr
     pub fn stderr(mut self, file: File) -> Result<Self> {
-        self.fds.insert(2, FdEntry::from(file)?);
+        self.fds.insert(2, PendingFdEntry::File(file));
         Ok(self)
     }
 
@@ -121,42 +190,71 @@ impl WasiCtxBuilder {
     }
 
     /// Build a `WasiCtx`, consuming this `WasiCtxBuilder`.
-    pub fn build(mut self) -> Result<WasiCtx> {
-        // startup code starts looking at fd 3 for preopens
-        let mut preopen_fd = 3;
-        for (guest_path, dir) in self.preopens {
-            if !dir.metadata()?.is_dir() {
-                return Err(Error::EBADF);
-            }
-
-            while self.fds.contains_key(&preopen_fd) {
-                preopen_fd = preopen_fd.checked_add(1).ok_or(Error::ENFILE)?;
-            }
-            let mut fe = FdEntry::from(dir)?;
-            fe.preopen_path = Some(guest_path);
-            log::debug!("WasiCtx inserting ({:?}, {:?})", preopen_fd, fe);
-            self.fds.insert(preopen_fd, fe);
-            log::debug!("WasiCtx fds = {:?}", self.fds);
-            preopen_fd = preopen_fd.checked_add(1).ok_or(Error::ENFILE)?;
-        }
+    pub fn build(self) -> Result<WasiCtx> {
+        // process arguments and environment variables into `CString`s, failing quickly if they
+        // contain any NUL bytes, or if conversion from `OsString` fails
+        let args = self
+            .args
+            .into_iter()
+            .map(|arg| arg.into_cstring())
+            .collect::<Result<Vec<CString>>>()?;
 
         let env = self
             .env
             .into_iter()
             .map(|(k, v)| {
-                let mut pair = k.into_bytes();
-                pair.push(b'=');
-                pair.extend_from_slice(v.to_bytes_with_nul());
-                // constructing a new CString from existing CStrings is safe
-                unsafe { CString::from_vec_unchecked(pair) }
+                k.into_bytes().and_then(|mut pair| {
+                    v.into_bytes().and_then(|mut v| {
+                        pair.push(b'=');
+                        pair.append(&mut v);
+                        pair.push(b'\0');
+                        // we've added the nul byte at the end, but the keys and values have not yet been
+                        // checked for nuls, so we do a final check here
+                        CString::new(pair).map_err(|_| Error::ENOTCAPABLE)
+                    })
+                })
             })
-            .collect();
+            .collect::<Result<Vec<CString>>>()?;
 
-        Ok(WasiCtx {
-            fds: self.fds,
-            args: self.args,
-            env,
-        })
+        let mut fds: HashMap<wasi::__wasi_fd_t, FdEntry> = HashMap::new();
+        // populate the non-preopen fds
+        for (fd, pending) in self.fds {
+            log::debug!("WasiCtx inserting ({:?}, {:?})", fd, pending);
+            match pending {
+                PendingFdEntry::Thunk(f) => {
+                    fds.insert(fd, f()?);
+                }
+                PendingFdEntry::File(f) => {
+                    fds.insert(fd, FdEntry::from(f)?);
+                }
+            }
+        }
+        // then add the preopen fds. startup code in the guest starts looking at fd 3 for preopens,
+        // so we start from there. this variable is initially 2, though, because the loop
+        // immediately does the increment and check for overflow
+        let mut preopen_fd: wasi::__wasi_fd_t = 2;
+        for (guest_path, dir) in self.preopens {
+            // we do the increment at the beginning so that we don't overflow unnecessarily if we
+            // have exactly the maximum number of file descriptors
+            preopen_fd = preopen_fd.checked_add(1).ok_or(Error::ENFILE)?;
+
+            if !dir.metadata()?.is_dir() {
+                return Err(Error::EBADF);
+            }
+
+            // we don't currently allow setting file descriptors other than 0-2, but this will avoid
+            // collisions if we restore that functionality in the future
+            while fds.contains_key(&preopen_fd) {
+                preopen_fd = preopen_fd.checked_add(1).ok_or(Error::ENFILE)?;
+            }
+            let mut fe = FdEntry::from(dir)?;
+            fe.preopen_path = Some(guest_path);
+            log::debug!("WasiCtx inserting ({:?}, {:?})", preopen_fd, fe);
+            fds.insert(preopen_fd, fe);
+            log::debug!("WasiCtx fds = {:?}", fds);
+        }
+
+        Ok(WasiCtx { args, env, fds })
     }
 }
 
@@ -175,7 +273,7 @@ impl WasiCtx {
     /// - Environment variables are inherited from the host process.
     ///
     /// To override these behaviors, use `WasiCtxBuilder`.
-    pub fn new<S: AsRef<str>>(args: impl Iterator<Item = S>) -> Result<Self> {
+    pub fn new<S: AsRef<[u8]>>(args: impl Iterator<Item = S>) -> Result<Self> {
         WasiCtxBuilder::new()
             .and_then(|ctx| ctx.args(args))
             .and_then(|ctx| ctx.inherit_stdio())
