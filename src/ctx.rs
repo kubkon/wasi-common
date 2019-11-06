@@ -44,29 +44,11 @@ impl From<OsString> for PendingCString {
 }
 
 impl PendingCString {
-    #[cfg(not(windows))]
-    fn into_bytes(self) -> Result<Vec<u8>> {
-        use std::os::unix::ffi::OsStringExt;
-        match self {
-            PendingCString::Bytes(v) => Ok(v),
-            // on Unix, we use the bytes from the CString directly
-            PendingCString::OsString(s) => Ok(s.into_vec()),
-        }
-    }
-
-    #[cfg(windows)]
-    fn into_bytes(self) -> Result<Vec<u8>> {
-        match self {
-            PendingCString::Bytes(v) => Ok(v),
-            // on Windows, we go through conversion into a `String` in order to get bytes
-            PendingCString::OsString(s) => s.into_string().map(|s| s.into_bytes()),
-        }
-        .map_err(|_| Error::ENOTCAPABLE)
-    }
-
     fn into_string(self) -> Result<String> {
-        self.into_bytes()
-            .and_then(|v| String::from_utf8(v).map_err(|_| Error::ENOTCAPABLE))
+        match self {
+            PendingCString::Bytes(v) => String::from_utf8(v).map_err(|_| Error::ENOTCAPABLE),
+            PendingCString::OsString(s) => s.into_string().map_err(|_| Error::ENOTCAPABLE),
+        }
     }
 
     /// Create a `CString` containing valid UTF-8, or fail with `Error::ENOTCAPABLE`.
