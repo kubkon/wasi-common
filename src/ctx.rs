@@ -64,9 +64,15 @@ impl PendingCString {
         .map_err(|_| Error::ENOTCAPABLE)
     }
 
-    fn into_cstring(self) -> Result<CString> {
+    fn into_string(self) -> Result<String> {
         self.into_bytes()
-            .and_then(|v| CString::new(v).map_err(|_| Error::ENOTCAPABLE))
+            .and_then(|v| String::from_utf8(v).map_err(|_| Error::ENOTCAPABLE))
+    }
+
+    /// Create a `CString` containing valid UTF-8, or fail with `Error::ENOTCAPABLE`.
+    fn into_utf8_cstring(self) -> Result<CString> {
+        self.into_string()
+            .and_then(|s| CString::new(s).map_err(|_| Error::ENOTCAPABLE))
     }
 }
 
@@ -97,8 +103,8 @@ impl WasiCtxBuilder {
 
     /// Add arguments to the command-line arguments list.
     ///
-    /// Arguments must not contain NUL bytes, or `WasiCtxBuilder::build()` will fail with
-    /// `Error::ENOTCAPABLE`.
+    /// Arguments must be valid UTF-8 with no NUL bytes, or else `WasiCtxBuilder::build()` will fail
+    /// with `Error::ENOTCAPABLE`.
     pub fn args<S: AsRef<[u8]>>(mut self, args: impl IntoIterator<Item = S>) -> Self {
         self.args = args
             .into_iter()
@@ -109,14 +115,17 @@ impl WasiCtxBuilder {
 
     /// Add an argument to the command-line arguments list.
     ///
-    /// Arguments must not contain NUL bytes, or `WasiCtxBuilder::build()` will fail with
-    /// `Error::ENOTCAPABLE`.
+    /// Arguments must be valid UTF-8 with no NUL bytes, or else `WasiCtxBuilder::build()` will fail
+    /// with `Error::ENOTCAPABLE`.
     pub fn arg<S: AsRef<[u8]>>(mut self, arg: S) -> Self {
         self.args.push(arg.as_ref().to_vec().into());
         self
     }
 
     /// Inherit the command-line arguments from the host process.
+    ///
+    /// If any arguments from the host process contain invalid UTF-8, `WasiCtxBuilder::build()` will
+    /// fail with `Error::ENOTCAPABLE`.
     pub fn inherit_args(mut self) -> Self {
         self.args = env::args_os().map(PendingCString::OsString).collect();
         self
@@ -134,6 +143,10 @@ impl WasiCtxBuilder {
     }
 
     /// Inherit the environment variables from the host process.
+    ///
+    /// If any environment variables from the host process contain invalid Unicode (UTF-16 for
+    /// Windows, UTF-8 for other platforms), `WasiCtxBuilder::build()` will fail with
+    /// `Error::ENOTCAPABLE`.
     pub fn inherit_env(mut self) -> Self {
         self.env = std::env::vars_os()
             .map(|(k, v)| (k.into(), v.into()))
@@ -143,7 +156,7 @@ impl WasiCtxBuilder {
 
     /// Add an entry to the environment.
     ///
-    /// Environment variable keys and values must not contain NUL bytes, or
+    /// Environment variable keys and values must be valid UTF-8 with no NUL bytes, or else
     /// `WasiCtxBuilder::build()` will fail with `Error::ENOTCAPABLE`.
     pub fn env<S: AsRef<[u8]>>(mut self, k: S, v: S) -> Self {
         self.env
@@ -153,7 +166,7 @@ impl WasiCtxBuilder {
 
     /// Add entries to the environment.
     ///
-    /// Environment variable keys and values must not contain NUL bytes, or
+    /// Environment variable keys and values must be valid UTF-8 with no NUL bytes, or else
     /// `WasiCtxBuilder::build()` will fail with `Error::ENOTCAPABLE`.
     pub fn envs<S: AsRef<[u8]>, T: Borrow<(S, S)>>(
         mut self,
@@ -204,20 +217,19 @@ impl WasiCtxBuilder {
         let args = self
             .args
             .into_iter()
-            .map(|arg| arg.into_cstring())
+            .map(|arg| arg.into_utf8_cstring())
             .collect::<Result<Vec<CString>>>()?;
 
         let env = self
             .env
             .into_iter()
             .map(|(k, v)| {
-                k.into_bytes().and_then(|mut pair| {
-                    v.into_bytes().and_then(|mut v| {
-                        pair.push(b'=');
-                        pair.append(&mut v);
-                        pair.push(b'\0');
-                        // we've added the nul byte at the end, but the keys and values have not yet been
-                        // checked for nuls, so we do a final check here
+                k.into_string().and_then(|mut pair| {
+                    v.into_string().and_then(|v| {
+                        pair.push('=');
+                        pair.push_str(v.as_str());
+                        // we have valid UTF-8, but the keys and values have not yet been checked
+                        // for NULs, so we do a final check here
                         CString::new(pair).map_err(|_| Error::ENOTCAPABLE)
                     })
                 })
