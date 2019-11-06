@@ -80,7 +80,7 @@ pub struct WasiCtxBuilder {
 
 impl WasiCtxBuilder {
     /// Builder for a new `WasiCtx`.
-    pub fn new() -> Result<Self> {
+    pub fn new() -> Self {
         let mut builder = Self {
             fds: HashMap::new(),
             preopens: Vec::new(),
@@ -92,60 +92,63 @@ impl WasiCtxBuilder {
         builder.fds.insert(1, PendingFdEntry::Thunk(FdEntry::null));
         builder.fds.insert(2, PendingFdEntry::Thunk(FdEntry::null));
 
-        Ok(builder)
+        builder
     }
 
     /// Add arguments to the command-line arguments list.
     ///
     /// Arguments must not contain NUL bytes, or `WasiCtxBuilder::build()` will fail with
     /// `Error::ENOTCAPABLE`.
-    pub fn args<S: AsRef<[u8]>>(mut self, args: impl Iterator<Item = S>) -> Result<Self> {
-        self.args = args.map(|arg| arg.as_ref().to_vec().into()).collect();
-        Ok(self)
+    pub fn args<S: AsRef<[u8]>>(mut self, args: impl IntoIterator<Item = S>) -> Self {
+        self.args = args
+            .into_iter()
+            .map(|arg| arg.as_ref().to_vec().into())
+            .collect();
+        self
     }
 
     /// Add an argument to the command-line arguments list.
     ///
     /// Arguments must not contain NUL bytes, or `WasiCtxBuilder::build()` will fail with
     /// `Error::ENOTCAPABLE`.
-    pub fn arg<S: AsRef<[u8]>>(mut self, arg: S) -> Result<Self> {
+    pub fn arg<S: AsRef<[u8]>>(mut self, arg: S) -> Self {
         self.args.push(arg.as_ref().to_vec().into());
-        Ok(self)
+        self
     }
 
     /// Inherit the command-line arguments from the host process.
-    pub fn inherit_args(mut self) -> Result<Self> {
+    pub fn inherit_args(mut self) -> Self {
         self.args = env::args_os().map(PendingCString::OsString).collect();
-        Ok(self)
+        self
     }
 
     /// Inherit the stdin, stdout, and stderr streams from the host process.
-    pub fn inherit_stdio(mut self) -> Result<Self> {
+    pub fn inherit_stdio(mut self) -> Self {
         self.fds
             .insert(0, PendingFdEntry::Thunk(FdEntry::duplicate_stdin));
         self.fds
             .insert(1, PendingFdEntry::Thunk(FdEntry::duplicate_stdout));
         self.fds
             .insert(2, PendingFdEntry::Thunk(FdEntry::duplicate_stderr));
-        Ok(self)
+        self
     }
 
     /// Inherit the environment variables from the host process.
-    pub fn inherit_env(mut self) -> Result<Self> {
+    pub fn inherit_env(mut self) -> Self {
         self.env = std::env::vars_os()
             .map(|(k, v)| (k.into(), v.into()))
             .collect();
-        Ok(self)
+        self
     }
 
     /// Add an entry to the environment.
     ///
     /// Environment variable keys and values must not contain NUL bytes, or
     /// `WasiCtxBuilder::build()` will fail with `Error::ENOTCAPABLE`.
-    pub fn env<S: AsRef<[u8]>>(mut self, k: S, v: S) -> Result<Self> {
+    pub fn env<S: AsRef<[u8]>>(mut self, k: S, v: S) -> Self {
         self.env
             .insert(k.as_ref().to_vec().into(), v.as_ref().to_vec().into());
-        Ok(self)
+        self
     }
 
     /// Add entries to the environment.
@@ -154,33 +157,34 @@ impl WasiCtxBuilder {
     /// `WasiCtxBuilder::build()` will fail with `Error::ENOTCAPABLE`.
     pub fn envs<S: AsRef<[u8]>, T: Borrow<(S, S)>>(
         mut self,
-        envs: impl Iterator<Item = T>,
-    ) -> Result<Self> {
+        envs: impl IntoIterator<Item = T>,
+    ) -> Self {
         self.env = envs
+            .into_iter()
             .map(|t| {
                 let (k, v) = t.borrow();
                 (k.as_ref().to_vec().into(), v.as_ref().to_vec().into())
             })
             .collect();
-        Ok(self)
+        self
     }
 
     /// Provide a File to use as stdin
-    pub fn stdin(mut self, file: File) -> Result<Self> {
+    pub fn stdin(mut self, file: File) -> Self {
         self.fds.insert(0, PendingFdEntry::File(file));
-        Ok(self)
+        self
     }
 
     /// Provide a File to use as stdout
-    pub fn stdout(mut self, file: File) -> Result<Self> {
+    pub fn stdout(mut self, file: File) -> Self {
         self.fds.insert(1, PendingFdEntry::File(file));
-        Ok(self)
+        self
     }
 
     /// Provide a File to use as stderr
-    pub fn stderr(mut self, file: File) -> Result<Self> {
+    pub fn stderr(mut self, file: File) -> Self {
         self.fds.insert(2, PendingFdEntry::File(file));
-        Ok(self)
+        self
     }
 
     /// Add a preopened directory.
@@ -190,6 +194,10 @@ impl WasiCtxBuilder {
     }
 
     /// Build a `WasiCtx`, consuming this `WasiCtxBuilder`.
+    ///
+    /// If any of the arguments or environment variables in this builder cannot be converted into
+    /// `CString`s, either due to NUL bytes or Unicode conversions, this returns
+    /// `Error::ENOTCAPABLE`.
     pub fn build(self) -> Result<WasiCtx> {
         // process arguments and environment variables into `CString`s, failing quickly if they
         // contain any NUL bytes, or if conversion from `OsString` fails
@@ -273,12 +281,12 @@ impl WasiCtx {
     /// - Environment variables are inherited from the host process.
     ///
     /// To override these behaviors, use `WasiCtxBuilder`.
-    pub fn new<S: AsRef<[u8]>>(args: impl Iterator<Item = S>) -> Result<Self> {
+    pub fn new<S: AsRef<[u8]>>(args: impl IntoIterator<Item = S>) -> Result<Self> {
         WasiCtxBuilder::new()
-            .and_then(|ctx| ctx.args(args))
-            .and_then(|ctx| ctx.inherit_stdio())
-            .and_then(|ctx| ctx.inherit_env())
-            .and_then(|ctx| ctx.build())
+            .args(args)
+            .inherit_stdio()
+            .inherit_env()
+            .build()
     }
 
     /// Check if `WasiCtx` contains the specified raw WASI `fd`.
