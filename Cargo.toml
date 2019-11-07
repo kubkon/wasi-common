@@ -46,7 +46,7 @@ wasmtime-environ = { git = "https://github.com/acfoltzer/wasmtime", rev = "d99e2
 wasmtime-jit = { git = "https://github.com/acfoltzer/wasmtime", rev = "d99e2fb" }
 wasmtime-wasi = { git = "https://github.com/acfoltzer/wasmtime", rev = "d99e2fb" }
 wasmtime-api = { git = "https://github.com/acfoltzer/wasmtime", rev = "d99e2fb" }
-cranelift-codegen = "0.47.0"
+cranelift-codegen = "0.49.0"
 target-lexicon = "0.8.1"
 pretty_env_logger = "0.3.0"
 tempfile = "3.1.0"
