@@ -193,8 +193,8 @@ impl WasiCtxBuilder {
     /// If any of the arguments or environment variables in this builder cannot be converted into
     /// `CString`s, either due to NUL bytes or Unicode conversions, this returns `Error::EILSEQ`.
     pub fn build(self) -> Result<WasiCtx> {
-        // process arguments and environment variables into `CString`s, failing quickly if they
-        // contain any NUL bytes, or if conversion from `OsString` fails
+        // Process arguments and environment variables into `CString`s, failing quickly if they
+        // contain any NUL bytes, or if conversion from `OsString` fails.
         let args = self
             .args
             .into_iter()
@@ -209,8 +209,8 @@ impl WasiCtxBuilder {
                     v.into_string().and_then(|v| {
                         pair.push('=');
                         pair.push_str(v.as_str());
-                        // we have valid UTF-8, but the keys and values have not yet been checked
-                        // for NULs, so we do a final check here
+                        // We have valid UTF-8, but the keys and values have not yet been checked
+                        // for NULs, so we do a final check here.
                         CString::new(pair).map_err(|_| Error::EILSEQ)
                     })
                 })
@@ -218,7 +218,7 @@ impl WasiCtxBuilder {
             .collect::<Result<Vec<CString>>>()?;
 
         let mut fds: HashMap<wasi::__wasi_fd_t, FdEntry> = HashMap::new();
-        // populate the non-preopen fds
+        // Populate the non-preopen fds.
         for (fd, pending) in self.fds {
             log::debug!("WasiCtx inserting ({:?}, {:?})", fd, pending);
             match pending {
@@ -230,21 +230,21 @@ impl WasiCtxBuilder {
                 }
             }
         }
-        // then add the preopen fds. startup code in the guest starts looking at fd 3 for preopens,
-        // so we start from there. this variable is initially 2, though, because the loop
-        // immediately does the increment and check for overflow
+        // Then add the preopen fds. Startup code in the guest starts looking at fd 3 for preopens,
+        // so we start from there. This variable is initially 2, though, because the loop
+        // immediately does the increment and check for overflow.
         let mut preopen_fd: wasi::__wasi_fd_t = 2;
         for (guest_path, dir) in self.preopens {
-            // we do the increment at the beginning so that we don't overflow unnecessarily if we
-            // have exactly the maximum number of file descriptors
+            // We do the increment at the beginning of the loop body, so that we don't overflow
+            // unnecessarily if we have exactly the maximum number of file descriptors.
             preopen_fd = preopen_fd.checked_add(1).ok_or(Error::ENFILE)?;
 
             if !dir.metadata()?.is_dir() {
                 return Err(Error::EBADF);
             }
 
-            // we don't currently allow setting file descriptors other than 0-2, but this will avoid
-            // collisions if we restore that functionality in the future
+            // We don't currently allow setting file descriptors other than 0-2, but this will avoid
+            // collisions if we restore that functionality in the future.
             while fds.contains_key(&preopen_fd) {
                 preopen_fd = preopen_fd.checked_add(1).ok_or(Error::ENFILE)?;
             }
@@ -305,7 +305,7 @@ impl WasiCtx {
     /// The `FdEntry` will automatically get another free raw WASI `fd` assigned. Note that
     /// the two subsequent free raw WASI `fd`s do not have to be stored contiguously.
     pub(crate) fn insert_fd_entry(&mut self, fe: FdEntry) -> Result<wasi::__wasi_fd_t> {
-        // never insert where stdio handles usually are
+        // Never insert where stdio handles are expected to be.
         let mut fd = 3;
         while self.fds.contains_key(&fd) {
             if let Some(next_fd) = fd.checked_add(1) {
