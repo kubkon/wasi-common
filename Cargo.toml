@@ -52,7 +52,7 @@ pretty_env_logger = "0.3.0"
 tempfile = "3.1.0"
 # this is just a temp fix to make the tests build and run; I hope this to be
 # completely removed when we merge `wasi-common` into `wasmtime`
-faerie = "=0.11.0"
+faerie = "=0.12.0"
 
 [patch."https://github.com/CraneStation/wasi-common"]
 wasi-common = { path = "." }
