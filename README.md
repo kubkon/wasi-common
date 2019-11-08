@@ -11,6 +11,10 @@
 [lucet-wasi-tracker]: https://github.com/fastly/lucet/commit/40ae1df64536250a2b6ab67e7f167d22f4aa7f94
 [WASI API]: https://github.com/CraneStation/wasmtime/blob/master/docs/WASI-api.md
 
+**Warning: this repo is now deprecated and read-only.**
+**The contents of this repo has now been moved into [Wasmtime] crate.**
+**If you have an issue, you'd like to raise, please submit it there.**
+
 This repo will ultimately serve as a library providing a common implementation of
 WASI hostcalls for re-use in any WASI (and potentially non-WASI) runtimes
 such as [Wasmtime] and [Lucet].
